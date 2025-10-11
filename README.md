@@ -11,7 +11,7 @@ Upload an image and get the predicted species along with detailed mushroom infor
 
 ```bash
 git clone https://github.com/linnn-7/mushroom-classifier.git
-cd project
+cd mushroom-classifier
 ```
 
 2. **Create a virtual environment**
