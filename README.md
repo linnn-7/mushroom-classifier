@@ -69,7 +69,10 @@ pip install -r requirements.txt
 
 ## Run the Streamlit App
 
-`streamlit run app.py`
+```
+cd src
+streamlit run app.py
+```
 
 - Open the URL displayed in the console (e.g., http://localhost:8501) in your browser.
 
