@@ -1,0 +1,128 @@
+{
+    "Agaricus": {
+        "common_name": "Field Mushroom / Button Mushroom",
+        "taxonomy": {
+            "family": "Agaricaceae"
+        },
+        "edibility": "Choice Edible",
+        "description": "Common edible genus, including the mushrooms you buy in the store (Agaricus bisporus). Often found in lawns and meadows. Gills start pink and turn dark brown with age.",
+        "distinguishing_features": [
+            "Gills are pink (when young) to dark brown (when mature).",
+            "Does NOT have a volva (cup) at the base of the stem.",
+            "Spore print is dark brown."
+        ],
+        "safety_warning": "CRITICAL: Must be distinguished from deadly Amanita species (which have white gills, a white spore print, and a volva at the base)."
+    },
+    "Amanita": {
+        "common_name": "Amanita (includes Death Cap, Destroying Angel)",
+        "taxonomy": {
+            "family": "Amanitaceae"
+        },
+        "edibility": "Deadly Poisonous",
+        "description": "Genus containing some of the most toxic mushrooms known. Responsible for the majority of fatal mushroom poisonings. Avoid if unsure.",
+        "distinguishing_features": [
+            "Gills are almost always white.",
+            "Spore print is white.",
+            "Has a 'volva' (a sac-like cup) at the base of the stem (may be underground).",
+            "Often has a 'ring' or 'skirt' on the stem."
+        ],
+        "safety_warning": "Default assumption for any Amanita is **DEADLY**. Never consume. The 'Destroying Angel' (Amanita bisporigera) looks just like an edible Field Mushroom."
+    },
+    "Boletus": {
+        "common_name": "Bolete / Porcini",
+        "taxonomy": {
+            "family": "Boletaceae"
+        },
+        "edibility": "Varies (Many Choice Edibles)",
+        "description": "A group of fleshy, thick-capped mushrooms with pores instead of gills. Many are prized edibles, like the King Bolete (Porcini).",
+        "distinguishing_features": [
+            "Has a spongy layer of PORES underneath the cap instead of gills.",
+            "Many species 'bluise' or change color when cut or bruised.",
+            "Flesh is thick and solid."
+        ],
+        "safety_warning": "While many are prized, some boletes are bitter, poisonous, or cause gastric distress. Avoid any boletes that have red or deep orange pores."
+    },
+    "Cortinarius": {
+        "common_name": "Webcap",
+        "taxonomy": {
+            "family": "Cortinariaceae"
+        },
+        "edibility": "Varies (Some Deadly)",
+        "description": "A massive genus of mushrooms. Many are notoriously difficult to identify and some are deadly toxic, attacking the kidneys. Do not eat unless confident.",
+        "distinguishing_features": [
+            "Young specimens have a 'cortina' (a cobweb-like partial veil) covering the gills.",
+            "Spore print is rust-brown (this often dusts the stem and cortina)."
+        ],
+        "safety_warning": "Consider all Cortinarius species toxic. Some, like the Deadly Webcap, can cause kidney failure weeks after ingestion. Not a genus for beginners."
+    },
+    "Entoloma": {
+        "common_name": "Pinkgill",
+        "taxonomy": {
+            "family": "Entolomataceae"
+        },
+        "edibility": "Varies (Some Toxic)",
+        "description": "A large, diverse genus known for its characteristic pink spore print. Many are small, brown, and hard to identify. Identification is critical.",
+        "distinguishing_features": [
+            "Spore print is salmon-pink.",
+            "Spores are angular (visible under a microscope).",
+            "Gills are typically 'attached' to the stem (not free)."
+        ],
+        "safety_warning": "Many species are poisonous, most famously the 'Livid Pinkgill' (Entoloma sinuatum). Can be confused with edible species."
+    },
+    "Hygrocybe": {
+        "common_name": "Waxcap",
+        "taxonomy": {
+            "family": "Hygrophoraceae"
+        },
+        "edibility": "Generally Edible (but not choice)",
+        "description": "Known as waxcaps. They are often small, brightly colored (red, orange, yellow), and have a waxy or greasy feel.",
+        "distinguishing_features": [
+            "Cap and gills often feel waxy or moist.",
+            "Often brightly colored (red, orange, yellow, green).",
+            "Gills are often thick, widely spaced, and attached to the stem."
+        ],
+        "safety_warning": "While most are considered edible (or at least not poisonous), their small size makes them less desirable. Primarily indicators of old, unimproved grassland."
+    },
+    "Lactarius": {
+        "common_name": "Milkcap",
+        "taxonomy": {
+            "family": "Russulaceae"
+        },
+        "edibility": "Varies (Some Edible, Many Toxic)",
+        "description": "Known as milkcaps. Their defining feature is that they exude a 'latex' or 'milk' when the gills or flesh are cut. Some are edible.",
+        "distinguishing_features": [
+            "Exudes a milky latex (e.g., white, orange, red) when cut or damaged.",
+            "Flesh is brittle and snaps like chalk (similar to Russula)."
+        ],
+        "safety_warning": "Edibility depends on the species and the taste/color of the milk. Many with white, acrid (peppery) milk are toxic. Some, like the Saffron Milkcap (orange milk), are edible."
+    },
+    "Russula": {
+        "common_name": "Brittlegill",
+        "taxonomy": {
+            "family": "Russulaceae"
+        },
+        "edibility": "Varies (Some Edible, Some Toxic)",
+        "description": "Known as brittlegills. A very large genus with hundreds of species, often with brightly colored caps (red, green, purple). Handle with care.",
+        "distinguishing_features": [
+            "The stem snaps cleanly in two, like a piece of chalk (brittle flesh).",
+            "Gills are often white to cream and brittle.",
+            "Often have very colorful caps."
+        ],
+        "safety_warning": "Many species are acrid (peppery) and will cause gastric upset. A common (but not 100% reliable) rule for experts is that mild-tasting species are edible, and acrid ones are not."
+    },
+    "Suillus": {
+        "common_name": "Slippery Jack / Conifer Bolete",
+        "taxonomy": {
+            "family": "Suillaceae"
+        },
+        "edibility": "Generally Edible",
+        "description": "A genus of boletes (pore-surface, not gills) that are almost exclusively found growing with conifer trees like pines and firs. Mostly edible.",
+        "distinguishing_features": [
+            "Has pores, not gills.",
+            "Cap is often slimy, sticky, or 'slippery' (especially when wet).",
+            "Found under conifer trees.",
+            "Often has a ring on the stem."
+        ],
+        "safety_warning": "Most are edible, but many people remove the slimy cap cuticle before cooking as it can have a laxative effect or cause stomach upset."
+    }
+}
