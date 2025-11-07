@@ -607,9 +607,6 @@ def format_field_evaluation(state: MDPState, final_state: MDPState) -> str:
                         else:
                             eval_text = f"ℹ️ <strong>Supporting evidence:</strong> {answer} odor is a characteristic that helps distinguish {pred_class} from similar species. Odor is an important diagnostic feature, though it can vary between species within a genus."
                             eval_color = "#7dd3fc"
-                    else:
-                        eval_text = f"ℹ️ <strong>Supporting evidence:</strong> {answer} odor is a distinctive characteristic that helps identify {pred_class} species. Odor can be a key diagnostic feature, especially when combined with other characteristics like gill color and habitat."
-                        eval_color = "#7dd3fc"
                 else:
                     eval_text = "ℹ️ <strong>Uncertain:</strong> Odor is an important identifying feature for many mushrooms. Some species have distinctive smells (anise, almond, foul, etc.) that can help distinguish them from similar-looking species. Always smell the mushroom carefully (but don't inhale deeply)."
                     eval_color = "#fbbf24"
