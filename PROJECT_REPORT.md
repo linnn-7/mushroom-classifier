@@ -1,9 +1,13 @@
 # Safe Mushroom Identification: A Hybrid CNN-MDP System for Responsible AI
 
 **Authors:** 
-### Oliver Loo, A0235388U, e0727388@u.nus.edu 
-### Lin Bin, A0258760W, e0969732@u.nus.edu
-### Du Kaixuan, A0264632E, e1032444@u.nus.edu 
+- Oliver Loo, A0235388U, e0727388@u.nus.edu 
+- Lin Bin, A0258760W, e0969732@u.nus.edu
+- Du Kaixuan, A0264632E, e1032444@u.nus.edu 
+
+---
+
+**Note on LaTeX Rendering:** This document uses LaTeX math notation. If viewing on GitHub, some LaTeX expressions with underscores may show rendering warnings. All underscores in math mode are properly escaped as `\_` within `\text{}` blocks. The document renders correctly in LaTeX-compatible viewers (e.g., VS Code with Markdown Preview Enhanced, or when exported to PDF).
 
 ---
 
@@ -197,13 +201,17 @@ Actions $a \in \mathcal{A}$:
 
 $$\mathcal{A} = \{\text{ASK\_VOLVA}, \text{ASK\_SPORE\_PRINT}, \text{ASK\_HABITAT}, \text{ASK\_GILL\_COLOR}, \text{ASK\_BRUISING}, \text{ASK\_ODOR}, \text{MAKE\_DECISION}\}$$
 
+Note: In the above, underscores are escaped as `\_` within `\text{}` blocks.
+
 **Action Space Size**: $|\mathcal{A}| = 7$
 
 #### 3.3.3 Transition Model
 
 Transition probabilities $P(s_{t+1} | s_t, a_t)$ are modeled based on mycological domain knowledge:
 
-**Example Transition (Agaricus + ASK_VOLVA):**
+**Example Transition (Agaricus + ASK\_VOLVA):**
+
+Note: The underscore in "ASK\_VOLVA" is escaped with a backslash to prevent GitHub markdown from interpreting it as formatting.
 
 $$P(s_{t+1} | s_t = (\text{Agaricus}, c, \mathcal{F}, \mathcal{A}, u), a_t = \text{ASK\_VOLVA}, \text{answer} = \text{No}) = 1.0$$
 
@@ -211,7 +219,7 @@ This is deterministic given the answer, but the uncertainty update is probabilis
 
 $$u_{t+1} = \max(0, u_t - \alpha \cdot \text{information\_gain}(a_t, \text{answer}))$$
 
-where $\alpha$ is a learning rate and information gain depends on how much the answer reduces uncertainty.
+where $\alpha$ is a learning rate and `information\_gain` is computed based on how much the answer reduces uncertainty.
 
 **Transition Complexity:**
 
@@ -235,6 +243,8 @@ where:
   +50 & \text{if } s'.\text{safety\_status} = \text{SAFE} \text{ (confirmed safe)} \\
   +25 & \text{if } s'.\text{safety\_status} = \text{UNCERTAIN} \text{ (conservative)}
   \end{cases}$$
+
+where `safety\_status` is a property of state $s'$.
 
 - **Confidence Reward**:
   $$R_{\text{confidence}}(s') = \begin{cases}
@@ -266,6 +276,8 @@ $$\pi(a | s) = \begin{cases}
 \text{MAKE\_DECISION} & \text{if } |\mathcal{F}_{\text{obs}}| \geq 4 \text{ and } u < 0.15
 \end{cases}$$
 
+where action names use underscores (e.g., `ASK\_VOLVA`) and are properly escaped in LaTeX.
+
 **Policy Complexity**: $O(|\mathcal{A}|)$ per state (linear in action space)
 
 **Alternative**: Full value iteration would require $O(|\mathcal{S}|^2 \times |\mathcal{A}|)$ per iteration, which is computationally expensive for our state space. The heuristic policy provides a good approximation while maintaining real-time performance.
@@ -289,12 +301,14 @@ The final decision function `make_final_decision(s)` explicitly models conflicti
 
 3. **Confidence Adjustment**:
    $$\text{decision\_confidence} = \begin{cases}
-   \max(0.2, c - 0.5) & \text{if critical\_conflicts} \geq 2 \\
-   \max(0.3, c - 0.4) & \text{if critical\_conflicts} \geq 1 \text{ or conflicts} \geq 2 \\
-   \max(0.4, c - 0.2) & \text{if conflicts} \geq 1 \\
+   \max(0.2, c - 0.5) & \text{if } \text{critical\_conflicts} \geq 2 \\
+   \max(0.3, c - 0.4) & \text{if } \text{critical\_conflicts} \geq 1 \text{ or } \text{conflicts} \geq 2 \\
+   \max(0.4, c - 0.2) & \text{if } \text{conflicts} \geq 1 \\
    \min(0.95, c + 0.1) & \text{if no conflicts and strong evidence} \\
    \max(0.3, c - 0.2) & \text{otherwise}
    \end{cases}$$
+
+where variable names with underscores (e.g., `decision\_confidence`, `critical\_conflicts`) are properly escaped.
 
 This ensures that conflicting evidence significantly reduces confidence, preventing false positives.
 
@@ -323,6 +337,8 @@ For educational explanations, we use GPT-4o-mini with Retrieval-Augmented Genera
 
 2. **Generation**: LLM generates response using retrieved context:
    $$\text{response} = \text{LLM}(\text{system\_prompt}, \text{KB\_context}, q)$$
+
+where `system\_prompt` and `KB\_context` are properly escaped variable names.
 
 **System Prompt** emphasizes:
 - Safety-first principles
