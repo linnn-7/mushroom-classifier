@@ -27,5 +27,6 @@ Thumbs.db
 
 # API Keys and secrets
 .streamlit/secrets.toml
+src/.streamlit/secrets.toml
 .env
 secrets.toml
