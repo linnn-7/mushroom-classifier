@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 
 # Virtual environments
+venv/
 myenv/
 .env/
 .env.*
@@ -23,3 +24,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# API Keys and secrets
+.streamlit/secrets.toml
+.env
+secrets.toml
