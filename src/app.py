@@ -4,9 +4,13 @@ import torch
 from torchvision import transforms
 from model import FineTuneResNet18 
 import json 
-import os
+import os 
 import base64
-from openai import OpenAI 
+from openai import OpenAI
+from mdp_system import (
+    MDPState, Action, SafetyStatus, TransitionModel, RewardModel, MDPPolicy,
+    create_initial_state, make_final_decision
+)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 checkpoint = torch.load("mushroom_model.pt", map_location=device)
@@ -96,6 +100,17 @@ def get_mushroom_diagram_path():
     return None
 
 mushroom_diagram_path = get_mushroom_diagram_path()
+
+# Initialize MDP components
+@st.cache_resource
+def initialize_mdp_system():
+    """Initialize MDP system components"""
+    transition_model = TransitionModel()
+    reward_model = RewardModel()
+    policy = MDPPolicy(transition_model, reward_model)
+    return transition_model, reward_model, policy
+
+transition_model, reward_model, mdp_policy = initialize_mdp_system()
 
 # --- Prediction Function ---
 def predict_mushroom(image: Image.Image):
@@ -321,7 +336,7 @@ Provide a helpful, warm response using the knowledge base information above. Alw
                 {"role": "user", "content": user_message}
             ],
             temperature=0.3,  # Balanced for warm but focused responses
-            max_tokens=300  # Allow for structured responses with definitions
+            max_tokens=600  # Allow for complete structured responses with definitions
         )
         
         return response.choices[0].message.content
@@ -336,67 +351,276 @@ Provide a helpful, warm response using the knowledge base information above. Alw
 
 # --- Format Prediction Response (Sporacle Style) ---
 def format_prediction_response(pred_class, info, confidence_score):
-    """Format model prediction in Sporacle style with structured output"""
+    """Format model prediction in Sporacle style with structured, colorful output"""
     # Determine confidence band
     if confidence_score >= 0.8:
         confidence_band = "High"
+        conf_color = "#22c55e"  # Green
     elif confidence_score >= 0.5:
         confidence_band = "Medium"
+        conf_color = "#eab308"  # Yellow
     else:
         confidence_band = "Low"
+        conf_color = "#f97316"  # Orange
     
-    response = "**What I see**\n\n"
-    response += f"Model prediction: **{pred_class}** ({confidence_band} confidence: {confidence_score*100:.1f}%)\n\n"
+    # Start with HTML wrapper for styling
+    response = '<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif;">'
     
+    # Header: What I see - soft blue
+    response += '<h2 style="color: #7c8ba1; font-size: 1.5em; margin-top: 0; margin-bottom: 0.5em; border-bottom: 2px solid #9ca3af; padding-bottom: 0.3em;">🔍 What I See</h2>'
+    response += f'<p style="font-size: 1.1em; color: #ffffff; margin: 0.5em 0;">Model prediction: <strong style="color: #ffffff;">{pred_class}</strong> (<span style="color: {conf_color}; font-weight: bold;">{confidence_band}</span> confidence: {confidence_score*100:.1f}%)</p>'
+    response += '<br>'
+
     if info:
-        # Most likely candidate
-        response += f"**Most likely candidate**\n\n"
-        response += f"**{pred_class}** ({info['common_name']}) — {confidence_band}: "
+        # Most likely candidate - soft purple
+        response += '<h2 style="color: #a78bfa; font-size: 1.4em; margin-top: 1em; margin-bottom: 0.5em; border-bottom: 2px solid #c4b5fd; padding-bottom: 0.3em;">🎯 Most Likely Candidate</h2>'
+        response += f'<p style="font-size: 1.05em; color: #ffffff; margin: 0.5em 0; line-height: 1.6;"><strong style="color: #ffffff; font-size: 1.1em;">{pred_class}</strong> ({info["common_name"]}) — <span style="color: {conf_color}; font-weight: bold;">{confidence_band}</span>: '
         
         # Add key distinguishing features
         key_features = info['distinguishing_features'][:2]
-        response += "; ".join(key_features) + ".\n\n"
+        response += "; ".join(key_features) + ".</p>"
+        response += '<br>'
         
-        # Look-alikes & Risks
-        response += "**Look-alikes & Risks**\n\n"
+        # Look-alikes & Risks - soft red
+        response += '<h2 style="color: #f87171; font-size: 1.4em; margin-top: 1em; margin-bottom: 0.5em; border-bottom: 2px solid #fca5a5; padding-bottom: 0.3em;">⚠️ Look-alikes & Risks</h2>'
         
         # Special case for Agaricus
         if pred_class == "Agaricus":
-            response += "⚠️ **Amanita sp. (deadly)** — This looks similar to edible Agaricus, but Amanita species have a volva (a cup-like base at the bottom of the stem) and white spore prints. Agaricus have dark brown spore prints and no volva.\n\n"
+            response += '<p style="font-size: 1.05em; color: #ffffff; background-color: rgba(254, 242, 242, 0.2); padding: 0.8em; border-radius: 8px; border-left: 4px solid #f87171; margin: 0.5em 0; line-height: 1.6;"><strong>⚠️ Amanita sp. (deadly)</strong> — This looks similar to edible Agaricus, but Amanita species have a <strong>volva</strong> (a cup-like base at the bottom of the stem) and <strong>white spore prints</strong>. Agaricus have <strong>dark brown spore prints</strong> and <strong>no volva</strong>.</p>'
         elif pred_class == "Amanita":
-            response += "⚠️ **DEADLY** — This genus contains some of the most toxic mushrooms. Never consume any Amanita species.\n\n"
+            response += '<p style="font-size: 1.1em; color: #ffffff; background-color: rgba(254, 242, 242, 0.2); padding: 0.8em; border-radius: 8px; border-left: 4px solid #f87171; margin: 0.5em 0; line-height: 1.6;"><strong>⚠️ DEADLY</strong> — This genus contains some of the most toxic mushrooms. <strong>Never consume any Amanita species.</strong></p>'
         elif info['edibility'] in ["Deadly Poisonous", "Varies (Some Deadly)", "Varies (Some Toxic)"]:
-            response += f"⚠️ **High risk** — {info['safety_warning']}\n\n"
+            response += f'<p style="font-size: 1.05em; color: #ffffff; background-color: rgba(254, 242, 242, 0.2); padding: 0.8em; border-radius: 8px; border-left: 4px solid #f87171; margin: 0.5em 0; line-height: 1.6;"><strong>⚠️ High risk</strong> — {info["safety_warning"]}</p>'
         else:
-            response += f"⚠️ **Caution** — {info['safety_warning']}\n\n"
+            response += f'<p style="font-size: 1.05em; color: #ffffff; background-color: rgba(255, 251, 235, 0.2); padding: 0.8em; border-radius: 8px; border-left: 4px solid #fbbf24; margin: 0.5em 0; line-height: 1.6;"><strong>⚠️ Caution</strong> — {info["safety_warning"]}</p>'
+        response += '<br>'
         
-        # Next steps
-        response += "**Next steps**\n\n"
-        response += "1. Do a spore print (place the cap gill-side down on paper for 6-12 hours; the spore print color helps narrow the genus).\n"
-        response += "2. Carefully excavate the stipe (stem) base to check for a volva (cup-like base).\n"
-        response += "3. Note any bruising (color change after pressing) or distinctive odor.\n\n"
+        # Next steps - soft green
+        response += '<h2 style="color: #6ee7b7; font-size: 1.4em; margin-top: 1em; margin-bottom: 0.5em; border-bottom: 2px solid #86efac; padding-bottom: 0.3em;">📋 Next Steps</h2>'
+        response += '<ol style="font-size: 1.05em; color: #ffffff; margin: 0.5em 0; padding-left: 1.5em; line-height: 1.8;">'
+        response += '<li style="margin-bottom: 0.5em;">Do a <strong>spore print</strong> (place the cap gill-side down on paper for 6-12 hours; the spore print color helps narrow the genus).</li>'
+        response += '<li style="margin-bottom: 0.5em;">Carefully excavate the <strong>stipe (stem) base</strong> to check for a <strong>volva</strong> (cup-like base).</li>'
+        response += '<li style="margin-bottom: 0.5em;">Note any <strong>bruising</strong> (color change after pressing) or distinctive <strong>odor</strong>.</li>'
+        response += '</ol>'
         if mushroom_diagram_path:
-            response += "💡 **Tip**: Check the sidebar for a mushroom parts diagram to help identify these features!\n\n"
+            response += '<p style="font-size: 1em; color: #ffffff; background-color: rgba(238, 242, 255, 0.2); padding: 0.6em; border-radius: 6px; margin: 0.8em 0;">💡 <strong>Tip:</strong> Check the sidebar for a mushroom parts diagram to help identify these features!</p>'
+        response += '<br>'
         
-        # Verdict
-        response += "**Verdict**\n\n"
+        # Verdict - soft brown
+        response += '<h2 style="color: #d4a574; font-size: 1.4em; margin-top: 1em; margin-bottom: 0.5em; border-bottom: 2px solid #e5b887; padding-bottom: 0.3em;">⚖️ Verdict</h2>'
         if confidence_band == "Low" or pred_class == "Agaricus":
-            response += "⚠️ **Uncertain ID. Do not consume.** Verify with a local expert or share more details (spore print color, stipe base features).\n\n"
+            response += '<p style="font-size: 1.1em; color: #ffffff; background-color: rgba(254, 242, 242, 0.2); padding: 0.8em; border-radius: 8px; border-left: 4px solid #f87171; margin: 0.5em 0; line-height: 1.6;"><strong>⚠️ Uncertain ID. Do not consume.</strong> Verify with a local expert or share more details (spore print color, stipe base features).</p>'
         elif info['edibility'] in ["Deadly Poisonous", "Varies (Some Deadly)", "Varies (Some Toxic)"]:
-            response += "⚠️ **Do not consume.** This group contains deadly species. Consult an expert.\n\n"
+            response += '<p style="font-size: 1.1em; color: #ffffff; background-color: rgba(254, 242, 242, 0.2); padding: 0.8em; border-radius: 8px; border-left: 4px solid #f87171; margin: 0.5em 0; line-height: 1.6;"><strong>⚠️ Do not consume.</strong> This group contains deadly species. Consult an expert.</p>'
         else:
-            response += "⚠️ **I cannot confirm edibility from images alone.** This group has dangerous look-alikes. Please don't eat it. Verify with a local expert.\n\n"
+            response += '<p style="font-size: 1.1em; color: #ffffff; background-color: rgba(255, 251, 235, 0.2); padding: 0.8em; border-radius: 8px; border-left: 4px solid #fbbf24; margin: 0.5em 0; line-height: 1.6;"><strong>⚠️ I cannot confirm edibility from images alone.</strong> This group has dangerous look-alikes. Please don\'t eat it. Verify with a local expert.</p>'
+        response += '<br>'
         
-        # Mini-lesson
-        response += "**Mini-lesson**\n\n"
+        # Mini-lesson - soft blue
+        response += '<h2 style="color: #7dd3fc; font-size: 1.4em; margin-top: 1em; margin-bottom: 0.5em; border-bottom: 2px solid #93c5fd; padding-bottom: 0.3em;">📚 Mini-Lesson</h2>'
         if "spore print" in str(info['distinguishing_features']).lower():
-            response += "A spore print is the powder color left by spores—it's a key ID clue that helps separate look-alike genera.\n\n"
+            response += '<p style="font-size: 1.05em; color: #ffffff; background-color: rgba(239, 246, 255, 0.2); padding: 0.8em; border-radius: 8px; border-left: 4px solid #7dd3fc; margin: 0.5em 0; line-height: 1.6;">A <strong>spore print</strong> is the powder color left by spores—it\'s a key ID clue that helps separate look-alike genera.</p>'
         elif "volva" in str(info['distinguishing_features']).lower():
-            response += "A volva is a cup-like base at the bottom of the stem. Many deadly Amanita species have one, so always dig up the base to check.\n\n"
+            response += '<p style="font-size: 1.05em; color: #ffffff; background-color: rgba(239, 246, 255, 0.2); padding: 0.8em; border-radius: 8px; border-left: 4px solid #7dd3fc; margin: 0.5em 0; line-height: 1.6;">A <strong>volva</strong> is a cup-like base at the bottom of the stem. Many deadly Amanita species have one, so always dig up the base to check.</p>'
         else:
-            response += f"Key ID trait: {info['distinguishing_features'][0] if info['distinguishing_features'] else 'Check multiple features for safe identification'}.\n\n"
+            lesson_text = info['distinguishing_features'][0] if info['distinguishing_features'] else 'Check multiple features for safe identification'
+            response += f'<p style="font-size: 1.05em; color: #ffffff; background-color: rgba(239, 246, 255, 0.2); padding: 0.8em; border-radius: 8px; border-left: 4px solid #7dd3fc; margin: 0.5em 0; line-height: 1.6;">Key ID trait: <strong>{lesson_text}</strong>.</p>'
     
+    response += '</div>'
     return response
+
+# Helper function to get answer options for each action
+def get_action_options(action: Action) -> list:
+    """Get dropdown options for each action"""
+    options = {
+        Action.ASK_VOLVA: ["I don't know", "Yes", "No"],
+        Action.ASK_SPORE_PRINT: ["I don't know", "White", "Dark Brown / Chocolate", "Pink", "Black"],
+        Action.ASK_GILL_COLOR: ["I don't know", "White", "Pink", "Brown", "Black", "Yellow"],
+        Action.ASK_HABITAT: ["I don't know", "On wood", "On ground/soil"],
+        Action.ASK_BRUISING: ["I don't know", "Yes, it changes color", "No, no color change"],
+        Action.ASK_ODOR: ["I don't know", "Anise/licorice", "Almond", "Foul/rotten", "No distinct odor"],
+    }
+    return options.get(action, ["I don't know"])
+
+# Helper function to format checklist
+def format_checklist(state: MDPState) -> str:
+    """Format checklist with colorful, educational styling"""
+    all_features = {
+        "ask_volva": "Volva (cup-like base)",
+        "ask_spore_print": "Spore print color",
+        "ask_habitat": "Habitat",
+        "ask_gill_color": "Gill color",
+        "ask_bruising": "Bruising",
+        "ask_odor": "Odor"
+    }
+    
+    checklist = '<div style="background-color: rgba(240, 249, 255, 0.2); padding: 1em; border-radius: 10px; border: 2px solid #7c8ba1; margin: 1em 0;">'
+    checklist += '<h3 style="color: #7c8ba1; font-size: 1.3em; margin-top: 0; margin-bottom: 0.8em; border-bottom: 2px solid #9ca3af; padding-bottom: 0.3em;">📋 Verification Checklist</h3>'
+    checklist += '<ul style="list-style: none; padding-left: 0; margin: 0;">'
+    
+    for feature_key, feature_name in all_features.items():
+        if feature_key in state.features_observed:
+            answer = state.answers.get(feature_key, "Unknown")
+            checklist += f'<li style="margin: 0.6em 0; padding: 0.5em; background-color: rgba(220, 252, 231, 0.2); border-left: 4px solid #6ee7b7; border-radius: 4px;"><span style="color: #6ee7b7; font-size: 1.2em; margin-right: 0.5em;">✅</span><strong style="color: #ffffff;">{feature_name}</strong>: <span style="color: #ffffff;">{answer}</span></li>'
+        else:
+            checklist += f'<li style="margin: 0.6em 0; padding: 0.5em; background-color: rgba(254, 243, 199, 0.2); border-left: 4px solid #fbbf24; border-radius: 4px;"><span style="color: #fbbf24; font-size: 1.2em; margin-right: 0.5em;">⏳</span><strong style="color: #ffffff;">{feature_name}</strong>: <span style="color: #d1d5db; font-style: italic;">Not yet checked</span></li>'
+    
+    checklist += '</ul></div>'
+    return checklist
+
+# Helper function to format field evaluation
+def format_field_evaluation(state: MDPState, final_state: MDPState) -> str:
+    """Format evaluation of how each field supports the final verdict"""
+    pred_class = state.predicted_class
+    evaluation = '<div style="background-color: rgba(239, 246, 255, 0.2); padding: 1em; border-radius: 10px; border: 2px solid #7dd3fc; margin: 1em 0;">'
+    evaluation += '<h3 style="color: #7dd3fc; font-size: 1.3em; margin-top: 0; margin-bottom: 0.8em; border-bottom: 2px solid #93c5fd; padding-bottom: 0.3em;">🔬 Field-by-Field Evaluation</h3>'
+    
+    # Feature names mapping
+    feature_names = {
+        "ask_volva": "Volva (cup-like base)",
+        "ask_spore_print": "Spore print color",
+        "ask_habitat": "Habitat",
+        "ask_gill_color": "Gill color",
+        "ask_bruising": "Bruising",
+        "ask_odor": "Odor"
+    }
+    
+    # Evaluate each answered field
+    for feature_key, feature_name in feature_names.items():
+        if feature_key in state.features_observed:
+            answer = state.answers.get(feature_key, "Unknown")
+            
+            # Generate evaluation based on feature and answer
+            eval_text = ""
+            eval_color = "#ffffff"
+            
+            if feature_key == "ask_volva":
+                if pred_class == "Agaricus":
+                    if answer == "Yes":
+                        eval_text = "⚠️ <strong>Critical danger signal:</strong> A volva indicates this is likely an <strong>Amanita</strong> species, not Agaricus. Amanita species are often deadly."
+                        eval_color = "#f87171"
+                    elif answer == "No":
+                        eval_text = "✅ <strong>Supports Agaricus ID:</strong> No volva is consistent with Agaricus species, which helps distinguish from deadly Amanita."
+                        eval_color = "#6ee7b7"
+                    else:
+                        eval_text = "ℹ️ <strong>Uncertain:</strong> Without checking for a volva, we cannot rule out Amanita species."
+                        eval_color = "#fbbf24"
+                else:
+                    if answer == "Yes":
+                        eval_text = "ℹ️ <strong>Important feature:</strong> Presence of a volva is a key identifying characteristic for many mushroom genera."
+                    elif answer == "No":
+                        eval_text = "ℹ️ <strong>Important feature:</strong> Absence of a volva helps narrow down the identification."
+                    else:
+                        eval_text = "ℹ️ <strong>Uncertain:</strong> Volva presence/absence would help with identification."
+            
+            elif feature_key == "ask_spore_print":
+                if pred_class == "Agaricus":
+                    if answer == "White":
+                        eval_text = "⚠️ <strong>Critical danger signal:</strong> White spore print indicates this is likely an <strong>Amanita</strong> species, not Agaricus. Agaricus have dark brown spore prints."
+                        eval_color = "#f87171"
+                    elif answer == "Dark Brown / Chocolate":
+                        eval_text = "✅ <strong>Strongly supports Agaricus ID:</strong> Dark brown/chocolate spore print is characteristic of Agaricus species and helps distinguish from deadly Amanita."
+                        eval_color = "#6ee7b7"
+                    else:
+                        eval_text = "ℹ️ <strong>Uncertain:</strong> Spore print color is critical for distinguishing Agaricus from Amanita. Without it, identification is less certain."
+                        eval_color = "#fbbf24"
+                else:
+                    eval_text = f"ℹ️ <strong>Important ID feature:</strong> Spore print color ({answer}) helps narrow down the genus identification."
+            
+            elif feature_key == "ask_habitat":
+                if answer != "I don't know":
+                    if pred_class == "Agaricus":
+                        if answer == "On ground/soil":
+                            eval_text = "✅ <strong>Strongly supports Agaricus ID:</strong> Agaricus species typically grow on soil, lawns, and meadows. This habitat is characteristic and helps distinguish from wood-growing species."
+                            eval_color = "#6ee7b7"
+                        else:
+                            eval_text = "⚠️ <strong>Unusual for Agaricus:</strong> Agaricus species typically grow on soil/ground, not wood. This may indicate a different genus or requires further verification."
+                            eval_color = "#fbbf24"
+                    elif pred_class in ["Boletus", "Suillus"]:
+                        if answer == "On ground/soil":
+                            eval_text = f"✅ <strong>Consistent with {pred_class}:</strong> {pred_class} species grow on the ground, often near trees. This habitat supports the identification."
+                            eval_color = "#6ee7b7"
+                        else:
+                            eval_text = f"⚠️ <strong>Unusual for {pred_class}:</strong> {pred_class} species typically grow on the ground near trees, not directly on wood. This may indicate a different genus."
+                            eval_color = "#fbbf24"
+                    else:
+                        eval_text = f"ℹ️ <strong>Supporting evidence:</strong> Growing {answer.lower()} is consistent with {pred_class} species and helps narrow down the identification. Habitat is a key ecological indicator."
+                        eval_color = "#7dd3fc"
+                else:
+                    eval_text = "ℹ️ <strong>Uncertain:</strong> Habitat information is crucial for identification. Many mushroom genera are strongly associated with specific habitats (soil vs. wood), which helps distinguish similar-looking species."
+                    eval_color = "#fbbf24"
+            
+            elif feature_key == "ask_gill_color":
+                if answer != "I don't know":
+                    if pred_class == "Agaricus":
+                        if answer == "Pink":
+                            eval_text = "✅ <strong>Strongly supports Agaricus ID:</strong> Pink gills are characteristic of young Agaricus species. As they mature, the gills turn dark brown, which is a key distinguishing feature from deadly Amanita (which have white gills)."
+                            eval_color = "#6ee7b7"
+                        elif answer == "Brown" or answer == "Dark Brown / Chocolate":
+                            eval_text = "✅ <strong>Strongly supports Agaricus ID:</strong> Dark brown gills are characteristic of mature Agaricus species. This is a critical feature that helps distinguish from deadly Amanita species, which have white gills."
+                            eval_color = "#6ee7b7"
+                        elif answer == "White":
+                            eval_text = "⚠️ <strong>Critical danger signal:</strong> White gills indicate this is likely an <strong>Amanita</strong> species, not Agaricus. Agaricus have pink (young) or dark brown (mature) gills. Amanita species are often deadly."
+                            eval_color = "#f87171"
+                        else:
+                            eval_text = f"ℹ️ <strong>Important feature:</strong> {answer} gills are not typical for Agaricus (which have pink or dark brown gills). This may indicate a different genus and requires careful verification."
+                            eval_color = "#fbbf24"
+                    else:
+                        eval_text = f"ℹ️ <strong>Supporting evidence:</strong> {answer} gills are a key identifying feature for {pred_class} species. Gill color, along with spore print color, helps distinguish between similar genera and is essential for accurate identification."
+                        eval_color = "#7dd3fc"
+                else:
+                    eval_text = "ℹ️ <strong>Uncertain:</strong> Gill color is one of the most important identifying features. It helps distinguish between genera (e.g., white gills in Amanita vs. pink/brown in Agaricus) and is critical for safe identification."
+                    eval_color = "#fbbf24"
+            
+            elif feature_key == "ask_bruising":
+                if answer != "I don't know":
+                    if answer == "Yes, it changes color":
+                        if pred_class == "Boletus":
+                            eval_text = "✅ <strong>Strongly supports Boletus ID:</strong> Many Boletus species exhibit color changes (often blue or green) when bruised or cut. This 'bluing' reaction is a key identifying characteristic for boletes and helps distinguish them from other genera."
+                            eval_color = "#6ee7b7"
+                        else:
+                            eval_text = f"ℹ️ <strong>Important identifying feature:</strong> Color change when bruised is a characteristic that helps distinguish {pred_class} from similar species. This reaction (often blue, green, or red) is a key diagnostic feature for many mushroom genera."
+                            eval_color = "#7dd3fc"
+                    else:
+                        if pred_class == "Boletus":
+                            eval_text = "ℹ️ <strong>Note:</strong> Many Boletus species do change color when bruised, but not all. The absence of color change doesn't rule out Boletus, but it may indicate a different species or genus."
+                            eval_color = "#fbbf24"
+                        else:
+                            eval_text = f"ℹ️ <strong>Supporting evidence:</strong> No color change when bruised is consistent with some {pred_class} species. Bruising behavior (or lack thereof) is an important diagnostic feature that helps narrow down identification."
+                            eval_color = "#7dd3fc"
+                else:
+                    eval_text = "ℹ️ <strong>Uncertain:</strong> Bruising behavior (whether the mushroom changes color when cut or pressed) is a key diagnostic feature, especially for boletes. This simple test can help distinguish between similar-looking species."
+                    eval_color = "#fbbf24"
+            
+            elif feature_key == "ask_odor":
+                if answer != "I don't know":
+                    if pred_class == "Agaricus":
+                        if answer == "Anise/licorice":
+                            eval_text = "✅ <strong>Strongly supports Agaricus ID:</strong> Anise or licorice odor is characteristic of some Agaricus species (like Agaricus arvensis). This distinctive smell is a key identifying feature that helps confirm the genus."
+                            eval_color = "#6ee7b7"
+                        elif answer == "Almond":
+                            eval_text = "✅ <strong>Supports Agaricus ID:</strong> Almond-like odor is found in some Agaricus species. This distinctive smell helps distinguish them from other genera and is a useful identifying characteristic."
+                            eval_color = "#6ee7b7"
+                        elif answer == "Foul/rotten":
+                            eval_text = "⚠️ <strong>Unusual for Agaricus:</strong> Foul or rotten odors are not typical for Agaricus species. This may indicate a different genus (like some Russula or Lactarius species) and requires careful verification."
+                            eval_color = "#fbbf24"
+                        else:
+                            eval_text = f"ℹ️ <strong>Supporting evidence:</strong> {answer} odor is a characteristic that helps distinguish {pred_class} from similar species. Odor is an important diagnostic feature, though it can vary between species within a genus."
+                            eval_color = "#7dd3fc"
+                    else:
+                        eval_text = f"ℹ️ <strong>Supporting evidence:</strong> {answer} odor is a distinctive characteristic that helps identify {pred_class} species. Odor can be a key diagnostic feature, especially when combined with other characteristics like gill color and habitat."
+                        eval_color = "#7dd3fc"
+                else:
+                    eval_text = "ℹ️ <strong>Uncertain:</strong> Odor is an important identifying feature for many mushrooms. Some species have distinctive smells (anise, almond, foul, etc.) that can help distinguish them from similar-looking species. Always smell the mushroom carefully (but don't inhale deeply)."
+                    eval_color = "#fbbf24"
+            
+            evaluation += f'<div style="margin: 0.8em 0; padding: 0.8em; background-color: rgba(255, 255, 255, 0.1); border-left: 4px solid {eval_color}; border-radius: 4px;">'
+            evaluation += f'<p style="font-size: 1.05em; color: #ffffff; margin: 0.3em 0; line-height: 1.6;"><strong style="color: {eval_color};">{feature_name}:</strong> {answer}</p>'
+            evaluation += f'<p style="font-size: 1em; color: {eval_color}; margin: 0.3em 0; line-height: 1.5;">{eval_text}</p>'
+            evaluation += '</div>'
+    
+    evaluation += '</div>'
+    return evaluation
 
 # --- Main UI ---
 st.title("🍄 Sporacle")
@@ -410,7 +634,7 @@ with st.sidebar:
         st.write(f"- {species}")
     
     st.markdown("---")
-    
+
     # Display mushroom diagram in sidebar if available
     if mushroom_diagram_path:
         st.header("🍄 Mushroom Parts Guide")
@@ -455,14 +679,18 @@ if "messages" not in st.session_state:
         welcome_message["sporacle_image"] = sporacle_image
     st.session_state.messages = [welcome_message]
 
-# Track if we're waiting for verification answers
+# Track MDP state for image classification
+if "mdp_state" not in st.session_state:
+    st.session_state.mdp_state = None
+if "current_action" not in st.session_state:
+    st.session_state.current_action = None
 if "waiting_for_verification" not in st.session_state:
     st.session_state.waiting_for_verification = False
 if "pending_prediction" not in st.session_state:
     st.session_state.pending_prediction = None
 
 # Display chat messages
-for message in st.session_state.messages:
+for i, message in enumerate(st.session_state.messages):
     # Use Sporacle avatar for assistant messages
     avatar = sporacle_avatar_path if message["role"] == "assistant" and sporacle_avatar_path else None
     with st.chat_message(message["role"], avatar=avatar):
@@ -473,65 +701,122 @@ for message in st.session_state.messages:
         # Display uploaded mushroom images
         if "image" in message and message["image"] is not None:
             st.image(message["image"], caption="Uploaded Image", width=300)
-        st.markdown(message["content"])
-
-# Handle verification questions for Agaricus (display after messages)
-if st.session_state.waiting_for_verification and st.session_state.pending_prediction:
-    with st.chat_message("assistant", avatar=sporacle_avatar_path if sporacle_avatar_path else None):
-        st.markdown("**I need some additional information to confirm the identification:**\n\n")
-        st.markdown("⚠️ **CRITICAL SAFETY WARNING**: The model predicts **Agaricus**, but this mushroom is visually identical to the **deadly 'Destroying Angel' (Amanita bisporigera)**.\n\n")
-        st.markdown("**Look-alikes & Risks**: Amanita species (deadly) can look identical to edible Agaricus. We need to check key features.\n\n")
+        # Use HTML rendering for assistant messages to support rich formatting
+        if message["role"] == "assistant" and ("<div" in message["content"] or "<h2" in message["content"] or "<h3" in message["content"]):
+            st.markdown(message["content"], unsafe_allow_html=True)
+        else:
+            st.markdown(message["content"])
         
-        # Display mushroom diagram if available
-        if mushroom_diagram_path:
-            st.markdown("**📖 Visual Guide - Mushroom Parts:**")
-            st.image(mushroom_diagram_path, caption="Mushroom anatomy diagram showing cap, gills, stipe (stem), volva, and spore print", width=400)
-            st.markdown("")
-        
-        st.markdown("Please answer these questions:\n\n")
-        
-        spore_color = st.selectbox(
-            "1. What color is the spore print? (Place the cap gill-side down on paper for 6-12 hours)",
-            ("I don't know", "White", "Dark Brown / Chocolate", "Pink", "Other"),
-            key="spore_color"
-        )
-        
-        volva_present = st.radio(
-            "2. Is there a volva (a cup-like base at the bottom of the stem) at the very base, possibly under the soil?",
-            ("I don't know", "Yes, I see a volva (cup-like base)", "No, there is no volva"),
-            key="volva_present"
-        )
-        
-        if st.button("Submit Verification", key="submit_verification"):
-            # Process verification (Sporacle style)
-            if spore_color == "White" or volva_present == "Yes, I see a volva (cup-like base)":
-                verification_result = "**Verdict**\n\n"
-                verification_result += "⚠️ **DO NOT EAT. This strongly matches the deadly Amanita.**\n\n"
-                verification_result += "Amanitas have a **white** spore print and a **volva** (cup-like base). Agaricus have dark brown spore prints and no volva.\n\n"
-                verification_result += "**I am not certain—do not consume.** Please verify with a local mycology expert."
-            elif spore_color == "Dark Brown / Chocolate" and volva_present == "No, there is no volva":
-                verification_result = "**Verdict**\n\n"
-                verification_result += "✅ **This confirms the Agaricus ID (Medium confidence).**\n\n"
-                verification_result += "Agaricus mushrooms are characterized by a **dark brown** spore print and **no volva** (no cup-like base).\n\n"
-                verification_result += "⚠️ **However, I cannot confirm edibility from images alone.** Always consult an expert before consuming any wild mushroom."
-            else:
-                verification_result = "**Verdict**\n\n"
-                verification_result += "ℹ️ **Incomplete verification (Low confidence).**\n\n"
-                verification_result += "Please complete the checks to get a safer recommendation. If you're unsure, **do not consume this mushroom**.\n\n"
-                verification_result += "**When in doubt, throw it out!**"
+        # If this is an MDP question message, show form with all questions (only for the last one)
+        if (message.get("role") == "assistant" and 
+            message.get("mdp_question") and 
+            st.session_state.mdp_state and 
+            not st.session_state.mdp_state.is_terminal and
+            i == len(st.session_state.messages) - 1):  # Only show form for the last message
             
-            # Add verification result to chat
-            verification_message = {
-                "role": "assistant",
-                "content": verification_result
-            }
-            # Add Sporacle image to verification message
-            if sporacle_image:
-                verification_message["sporacle_image"] = sporacle_image
-            st.session_state.messages.append(verification_message)
-            
-            st.session_state.waiting_for_verification = False
-            st.rerun()
+            # Add form with all questions at once (use unique key with message index)
+            with st.form(key=f"mdp_form_all_questions_{i}", clear_on_submit=False):
+                st.markdown("**Please fill in all the information you can:**")
+                
+                # All possible questions
+                all_actions = [
+                    (Action.ASK_VOLVA, "Is there a volva (cup-like base) at the stem base, possibly under the soil?"),
+                    (Action.ASK_SPORE_PRINT, "What color is the spore print? (Place the cap gill-side down on paper for 6-12 hours)"),
+                    (Action.ASK_HABITAT, "Where is the mushroom growing?"),
+                    (Action.ASK_GILL_COLOR, "What color are the gills?"),
+                    (Action.ASK_BRUISING, "Does the mushroom change color when bruised?"),
+                    (Action.ASK_ODOR, "What does the mushroom smell like?"),
+                ]
+                
+                # Store answers in session state
+                answers = {}
+                for action, question_text in all_actions:
+                    options = get_action_options(action)
+                    # Get default value (already answered or "I don't know")
+                    default_idx = 0  # "I don't know" is first
+                    if action.value in st.session_state.mdp_state.features_observed:
+                        current_answer = st.session_state.mdp_state.answers.get(action.value, "I don't know")
+                        if current_answer in options:
+                            default_idx = options.index(current_answer)
+                    
+                    selected = st.selectbox(
+                        question_text,
+                        options,
+                        key=f"mdp_select_{action.value}",
+                        index=default_idx
+                    )
+                    answers[action.value] = selected
+                
+                # Submit button
+                submitted = st.form_submit_button("Submit All Answers", type="primary", use_container_width=True)
+                
+                if submitted:
+                    # Update MDP state with all answers
+                    current_state = st.session_state.mdp_state
+                    
+                    # Process each answer
+                    for action_value, answer in answers.items():
+                        # Find the action enum
+                        action_enum = None
+                        for action in Action:
+                            if action.value == action_value:
+                                action_enum = action
+                                break
+                        
+                        if action_enum and action_enum != Action.MAKE_DECISION:
+                            # Update state with this answer
+                            current_state, prob = transition_model.get_transition(
+                                current_state,
+                                action_enum,
+                                answer
+                            )
+                    
+                    # Update session state
+                    st.session_state.mdp_state = current_state
+                    st.session_state.current_action = None
+                    
+                    # Clear question key so form doesn't show again
+                    if "mdp_question_shown" in st.session_state:
+                        del st.session_state["mdp_question_shown"]
+                    
+                    # After submitting all answers, always make final decision
+                    # Make final decision
+                    final_state = make_final_decision(current_state)
+                    st.session_state.mdp_state = final_state
+                    st.session_state.current_action = None
+                    
+                    # Format final decision
+                    result = '<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif;">'
+                    result += '<h2 style="color: #d4a574; font-size: 1.6em; margin-top: 0; margin-bottom: 0.8em; border-bottom: 3px solid #e5b887; padding-bottom: 0.3em;">⚖️ Final Verdict</h2>'
+                    result += format_checklist(final_state)
+                    
+                    # Add field-by-field evaluation
+                    result += format_field_evaluation(current_state, final_state)
+                    result += '<br>'
+                    
+                    # Final decision
+                    if final_state.safety_status == SafetyStatus.DANGER:
+                        result += '<p style="font-size: 1.2em; color: #ffffff; background-color: rgba(254, 242, 242, 0.2); padding: 1em; border-radius: 10px; border: 3px solid #f87171; margin: 1em 0; line-height: 1.6;"><strong>⚠️ DO NOT EAT. This mushroom is dangerous.</strong></p>'
+                        if current_state.predicted_class == "Agaricus":
+                            result += '<p style="font-size: 1.05em; color: #ffffff; margin: 0.8em 0; line-height: 1.6;">Based on the features checked, this strongly matches the deadly <strong>Amanita</strong> species.</p>'
+                        result += '<p style="font-size: 1.05em; color: #ffffff; margin: 0.8em 0; line-height: 1.6;"><strong>I am not certain—do not consume.</strong> Please verify with a local mycology expert.</p>'
+                    elif final_state.safety_status == SafetyStatus.SAFE:
+                        result += f'<p style="font-size: 1.2em; color: #ffffff; background-color: rgba(220, 252, 231, 0.2); padding: 1em; border-radius: 10px; border: 3px solid #6ee7b7; margin: 1em 0; line-height: 1.6;"><strong>✅ This confirms the {current_state.predicted_class} ID</strong> (Confidence: {final_state.decision_confidence*100:.1f}%).</p>'
+                        result += '<p style="font-size: 1.05em; color: #ffffff; background-color: rgba(255, 251, 235, 0.2); padding: 0.8em; border-radius: 8px; border-left: 4px solid #fbbf24; margin: 0.8em 0; line-height: 1.6;"><strong>⚠️ However, I cannot confirm edibility from images alone.</strong> Always consult an expert before consuming any wild mushroom.</p>'
+                    else:
+                        result += '<p style="font-size: 1.1em; color: #ffffff; background-color: rgba(255, 251, 235, 0.2); padding: 1em; border-radius: 10px; border: 3px solid #fbbf24; margin: 1em 0; line-height: 1.6;"><strong>ℹ️ Uncertain ID (Low confidence).</strong></p>'
+                        result += '<p style="font-size: 1.05em; color: #ffffff; margin: 0.8em 0; line-height: 1.6;">Please complete additional checks or consult an expert. If you\'re unsure, <strong>do not consume this mushroom</strong>.</p>'
+                        result += '<p style="font-size: 1.1em; color: #ffffff; font-weight: bold; margin: 0.8em 0; line-height: 1.6;">When in doubt, throw it out!</p>'
+                    
+                    result += '</div>'
+                    
+                    # Add verdict to chat
+                    assistant_message = {"role": "assistant", "content": result}
+                    if sporacle_image:
+                        assistant_message["sporacle_image"] = sporacle_image
+                    st.session_state.messages.append(assistant_message)
+                    
+                    st.rerun()
 
 # Bottom input area with file upload and chat input side by side
 col1, col2 = st.columns([1, 4])
@@ -550,7 +835,7 @@ with col2:
         # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         
-        # Get response
+        # Get response (normal chat - MDP questions handled via form inputs)
         response = get_chat_response(prompt, mushroom_kb)
         
         # Add assistant response with Sporacle image
@@ -577,14 +862,17 @@ if uploaded_file is not None and mushroom_kb:
             "image": image
         })
         
-        # Classify
+        # Classify using CNN
         with st.spinner("Analyzing image..."):
             pred_class, info, confidence = predict_mushroom(image)
         
-        # Format response
+        # Create initial MDP state from CNN classification
+        initial_state = create_initial_state(pred_class, confidence, info or {})
+        
+        # Format initial response
         response = format_prediction_response(pred_class, info, confidence)
         
-        # Store prediction info for follow-up
+        # Store prediction info
         st.session_state.pending_prediction = {
             "class": pred_class,
             "info": info,
@@ -592,12 +880,19 @@ if uploaded_file is not None and mushroom_kb:
             "image": image
         }
         
-        # If Agaricus, set flag for verification
-        if pred_class == "Agaricus":
+        # Initialize MDP state
+        st.session_state.mdp_state = initial_state
+        
+        # Select first action to ask
+        first_action = mdp_policy.select_action(initial_state)
+        st.session_state.current_action = first_action
+        
+        # Determine if we need verification (use MDP for all cases, but prioritize Agaricus)
+        if pred_class == "Agaricus" or confidence < 0.8:
             st.session_state.waiting_for_verification = True
-            st.session_state.verification_answers = {}
         else:
-            st.session_state.waiting_for_verification = False
+            # For high confidence non-Agaricus, still use MDP but may terminate early
+            st.session_state.waiting_for_verification = True
         
         # Add assistant response (always include image for context)
         assistant_message = {
@@ -610,4 +905,26 @@ if uploaded_file is not None and mushroom_kb:
             assistant_message["sporacle_image"] = sporacle_image
         st.session_state.messages.append(assistant_message)
         
+        st.rerun()
+
+# Add MDP verification question to chat if needed
+if st.session_state.mdp_state and not st.session_state.mdp_state.is_terminal:
+    # Check if we've already shown the form
+    if "mdp_question_shown" not in st.session_state:
+        # Format question message
+        question_message = '<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif;">'
+        question_message += '<h2 style="color: #a78bfa; font-size: 1.5em; margin-top: 0; margin-bottom: 0.8em; border-bottom: 2px solid #c4b5fd; padding-bottom: 0.3em;">🔍 Additional Information Needed</h2>'
+        question_message += '<p style="font-size: 1.05em; color: #ffffff; margin: 0.5em 0; line-height: 1.6;">I need some additional information to confirm the identification. Please fill in all the information you can:</p>'
+        question_message += '</div>'
+        
+        # Add question to chat
+        assistant_message = {
+            "role": "assistant",
+            "content": question_message,
+            "mdp_question": True
+        }
+        if sporacle_image:
+            assistant_message["sporacle_image"] = sporacle_image
+        st.session_state.messages.append(assistant_message)
+        st.session_state["mdp_question_shown"] = True
         st.rerun()

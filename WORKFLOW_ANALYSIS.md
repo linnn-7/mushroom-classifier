@@ -252,3 +252,536 @@ To add technical depth, consider implementing an MDP-based decision system for t
 - Provide a formal framework for safety-critical decisions
 - Allow for analysis of state space size, policy optimization, etc.
 
+---
+
+## MDP Implementation Plan for Image Classification Workflow
+
+### Overview
+
+This plan outlines how to implement an MDP-based decision system for the image classification workflow, integrating the CNN classification from `mushroom_model.pt` with sequential decision-making for verification.
+
+### Architecture Overview
+
+```
+Image Upload
+    ↓
+CNN Classification (mushroom_model.pt)
+    ↓
+MDP Initial State s_0
+    ↓
+MDP Decision Loop:
+    - State evaluation
+    - Action selection (π)
+    - User interaction
+    - State transition
+    - Reward computation
+    ↓
+Terminal State (Final Decision)
+```
+
+### 1. State Representation
+
+#### 1.1 State Class Implementation
+
+```python
+from dataclasses import dataclass
+from typing import Dict, Set, Optional
+from enum import Enum
+
+class SafetyStatus(Enum):
+    SAFE = "SAFE"
+    DANGER = "DANGER"
+    UNCERTAIN = "UNCERTAIN"
+
+@dataclass
+class MDPState:
+    """MDP state representation for mushroom identification"""
+    # From CNN
+    predicted_class: str  # Output from mushroom_model.pt
+    confidence: float  # CNN confidence [0, 1]
+    kb_info: Dict  # Knowledge base information
+    
+    # From user interactions
+    features_observed: Set[str]  # Set of features checked
+    answers: Dict[str, str]  # User answers to questions
+    uncertainty: float  # Updated uncertainty [0, 1]
+    
+    # Decision state
+    is_terminal: bool = False
+    safety_status: Optional[SafetyStatus] = None
+    decision_confidence: Optional[float] = None
+    
+    def __hash__(self):
+        """Make state hashable for MDP algorithms"""
+        return hash((
+            self.predicted_class,
+            round(self.confidence, 2),
+            tuple(sorted(self.features_observed)),
+            tuple(sorted(self.answers.items())),
+            round(self.uncertainty, 2)
+        ))
+```
+
+#### 1.2 Initial State Generation
+
+```python
+def create_initial_state(image, model, mushroom_kb):
+    """
+    Create initial MDP state from CNN classification
+    
+    Args:
+        image: PIL Image
+        model: Loaded mushroom_model.pt (FineTuneResNet18)
+        mushroom_kb: Knowledge base dictionary
+    
+    Returns:
+        MDPState: Initial state s_0
+    """
+    # CNN classification
+    pred_class, info, confidence = predict_mushroom(image, model)
+    
+    # Create initial state
+    s_0 = MDPState(
+        predicted_class=pred_class,
+        confidence=confidence,
+        kb_info=info,
+        features_observed=set(),
+        answers={},
+        uncertainty=1.0 - confidence  # High uncertainty if low confidence
+    )
+    
+    return s_0
+```
+
+### 2. Action Space
+
+#### 2.1 Action Enumeration
+
+```python
+from enum import Enum
+
+class Action(Enum):
+    """MDP actions for mushroom identification"""
+    ASK_SPORE_PRINT = "ask_spore_print"
+    ASK_VOLVA = "ask_volva"
+    ASK_GILL_COLOR = "ask_gill_color"
+    ASK_HABITAT = "ask_habitat"
+    ASK_BRUISING = "ask_bruising"
+    ASK_ODOR = "ask_odor"
+    REQUEST_ADDITIONAL_IMAGE = "request_additional_image"
+    MAKE_DECISION = "make_decision"  # Terminal action
+    
+    def get_question_text(self):
+        """Get human-readable question for action"""
+        questions = {
+            Action.ASK_SPORE_PRINT: "What color is the spore print?",
+            Action.ASK_VOLVA: "Is there a volva (cup-like base) at the stem base?",
+            Action.ASK_GILL_COLOR: "What color are the gills?",
+            Action.ASK_HABITAT: "Where is the mushroom growing?",
+            Action.ASK_BRUISING: "Does the mushroom change color when bruised?",
+            Action.ASK_ODOR: "What does the mushroom smell like?",
+        }
+        return questions.get(self, "")
+```
+
+### 3. Transition Probabilities
+
+#### 3.1 Transition Model
+
+```python
+from typing import Dict, Tuple
+import numpy as np
+
+class TransitionModel:
+    """Models state transition probabilities P(s_{t+1} | s_t, a_t)"""
+    
+    def __init__(self):
+        # Learned from domain knowledge or historical data
+        self.transition_probs = self._initialize_transitions()
+    
+    def _initialize_transitions(self) -> Dict:
+        """
+        Initialize transition probabilities based on mycological knowledge
+        
+        Returns:
+            Dict mapping (state_features, action, answer) -> (next_state_features, probability)
+        """
+        transitions = {}
+        
+        # Example: Agaricus + Ask Volva + "No" → High confidence Agaricus
+        transitions[("Agaricus", Action.ASK_VOLVA, "No")] = {
+            "confidence_increase": 0.15,
+            "uncertainty_decrease": 0.2,
+            "probability": 0.8
+        }
+        
+        # Example: Agaricus + Ask Volva + "Yes" → Danger (Amanita)
+        transitions[("Agaricus", Action.ASK_VOLVA, "Yes")] = {
+            "safety_status": SafetyStatus.DANGER,
+            "probability": 0.9
+        }
+        
+        # Example: Agaricus + Ask Spore Print + "Dark Brown" → Confirm Agaricus
+        transitions[("Agaricus", Action.ASK_SPORE_PRINT, "Dark Brown")] = {
+            "confidence_increase": 0.1,
+            "uncertainty_decrease": 0.15,
+            "probability": 0.7
+        }
+        
+        # Example: Agaricus + Ask Spore Print + "White" → Danger (Amanita)
+        transitions[("Agaricus", Action.ASK_SPORE_PRINT, "White")] = {
+            "safety_status": SafetyStatus.DANGER,
+            "probability": 0.85
+        }
+        
+        return transitions
+    
+    def get_transition(self, state: MDPState, action: Action, answer: str) -> Tuple[MDPState, float]:
+        """
+        Get next state and transition probability
+        
+        Args:
+            state: Current state
+            action: Action taken
+            answer: User's answer
+        
+        Returns:
+            Tuple of (next_state, probability)
+        """
+        key = (state.predicted_class, action, answer)
+        transition_info = self.transition_probs.get(key, {})
+        
+        # Create next state
+        next_state = MDPState(
+            predicted_class=state.predicted_class,
+            confidence=min(1.0, state.confidence + transition_info.get("confidence_increase", 0)),
+            kb_info=state.kb_info,
+            features_observed=state.features_observed | {action.value},
+            answers={**state.answers, action.value: answer},
+            uncertainty=max(0.0, state.uncertainty - transition_info.get("uncertainty_decrease", 0))
+        )
+        
+        # Update safety status if transition indicates danger
+        if "safety_status" in transition_info:
+            next_state.safety_status = transition_info["safety_status"]
+            next_state.is_terminal = True
+        
+        probability = transition_info.get("probability", 0.5)  # Default uncertainty
+        
+        return next_state, probability
+```
+
+### 4. Reward Function
+
+#### 4.1 Reward Model
+
+```python
+class RewardModel:
+    """Defines reward function R(s, a) for MDP"""
+    
+    # Reward constants
+    REWARD_CORRECT_ID = 100
+    REWARD_SAFETY = 50
+    REWARD_HIGH_CONFIDENCE = 10
+    COST_QUESTION = -1
+    COST_UNNECESSARY_QUESTION = -2
+    PENALTY_FALSE_NEGATIVE_DEADLY = -1000
+    PENALTY_FALSE_POSITIVE_EDIBLE = -100
+    PENALTY_USER_HARM = -10000
+    
+    def compute_reward(self, state: MDPState, action: Action, next_state: MDPState, 
+                      ground_truth: Optional[str] = None) -> float:
+        """
+        Compute reward for taking action in state
+        
+        Args:
+            state: Current state
+            action: Action taken
+            next_state: Resulting state
+            ground_truth: True class (if known, for training)
+        
+        Returns:
+            float: Reward value
+        """
+        reward = 0.0
+        
+        # Cost of asking questions
+        if action != Action.MAKE_DECISION:
+            reward += self.COST_QUESTION
+            
+            # Extra cost if question doesn't reduce uncertainty
+            if next_state.uncertainty >= state.uncertainty:
+                reward += self.COST_UNNECESSARY_QUESTION
+        
+        # Terminal state rewards
+        if next_state.is_terminal:
+            # High confidence decision
+            if next_state.decision_confidence and next_state.decision_confidence > 0.8:
+                reward += self.REWARD_HIGH_CONFIDENCE
+            
+            # Safety preservation
+            if next_state.safety_status == SafetyStatus.SAFE:
+                reward += self.REWARD_SAFETY
+            elif next_state.safety_status == SafetyStatus.DANGER:
+                # Preventing harm is highly rewarded
+                reward += self.REWARD_SAFETY * 2
+            
+            # Correct identification (if ground truth available)
+            if ground_truth:
+                if next_state.predicted_class == ground_truth:
+                    reward += self.REWARD_CORRECT_ID
+                else:
+                    # Penalty for wrong identification
+                    if ground_truth == "Amanita" and next_state.safety_status != SafetyStatus.DANGER:
+                        reward += self.PENALTY_FALSE_NEGATIVE_DEADLY
+                    else:
+                        reward += self.PENALTY_FALSE_POSITIVE_EDIBLE
+        
+        return reward
+```
+
+### 5. Policy Implementation
+
+#### 5.1 Value Iteration Policy
+
+```python
+from collections import defaultdict
+import numpy as np
+
+class MDPPolicy:
+    """MDP policy for action selection"""
+    
+    def __init__(self, transition_model: TransitionModel, reward_model: RewardModel,
+                 gamma: float = 0.9, epsilon: float = 0.1):
+        """
+        Initialize policy
+        
+        Args:
+            transition_model: Transition probability model
+            reward_model: Reward function
+            gamma: Discount factor
+            epsilon: Exploration rate (for epsilon-greedy)
+        """
+        self.transition_model = transition_model
+        self.reward_model = reward_model
+        self.gamma = gamma
+        self.epsilon = epsilon
+        
+        # Value function V(s)
+        self.value_function = defaultdict(float)
+        
+        # Policy π(a | s)
+        self.policy = defaultdict(lambda: Action.MAKE_DECISION)  # Default: make decision
+    
+    def value_iteration(self, states: Set[MDPState], max_iterations: int = 100):
+        """
+        Value iteration algorithm to compute optimal policy
+        
+        Args:
+            states: Set of all possible states
+            max_iterations: Maximum iterations
+        """
+        for iteration in range(max_iterations):
+            new_values = defaultdict(float)
+            
+            for state in states:
+                if state.is_terminal:
+                    new_values[state] = 0  # Terminal states have value 0
+                    continue
+                
+                # Compute value for each action
+                action_values = {}
+                for action in Action:
+                    if action == Action.MAKE_DECISION and len(state.features_observed) < 2:
+                        continue  # Need at least 2 features before making decision
+                    
+                    # Expected value of action
+                    expected_value = 0
+                    for answer in ["Yes", "No", "Unknown"]:
+                        next_state, prob = self.transition_model.get_transition(state, action, answer)
+                        reward = self.reward_model.compute_reward(state, action, next_state)
+                        expected_value += prob * (reward + self.gamma * self.value_function[next_state])
+                    
+                    action_values[action] = expected_value
+                
+                # Select best action (greedy)
+                if action_values:
+                    best_action = max(action_values, key=action_values.get)
+                    new_values[state] = action_values[best_action]
+                    self.policy[state] = best_action
+            
+            # Check convergence
+            max_diff = max(abs(new_values[s] - self.value_function[s]) for s in states)
+            self.value_function.update(new_values)
+            
+            if max_diff < 1e-6:
+                break
+    
+    def select_action(self, state: MDPState) -> Action:
+        """
+        Select action using epsilon-greedy policy
+        
+        Args:
+            state: Current state
+        
+        Returns:
+            Action to take
+        """
+        # Epsilon-greedy: explore with probability epsilon
+        if np.random.random() < self.epsilon:
+            # Explore: random action
+            available_actions = [a for a in Action if a != Action.MAKE_DECISION or 
+                                 len(state.features_observed) >= 2]
+            return np.random.choice(available_actions)
+        
+        # Exploit: use learned policy
+        return self.policy.get(state, Action.MAKE_DECISION)
+```
+
+### 6. Integration with Existing Code
+
+#### 6.1 Modified Image Upload Workflow
+
+```python
+# In app.py
+
+class MDPIdentificationSystem:
+    """MDP-based identification system"""
+    
+    def __init__(self, model, mushroom_kb):
+        self.model = model
+        self.mushroom_kb = mushroom_kb
+        self.transition_model = TransitionModel()
+        self.reward_model = RewardModel()
+        self.policy = MDPPolicy(self.transition_model, self.reward_model)
+        
+        # Pre-compute policy (can be done offline)
+        self._initialize_policy()
+    
+    def _initialize_policy(self):
+        """Initialize policy with value iteration"""
+        # Generate representative states
+        states = self._generate_state_space()
+        self.policy.value_iteration(states)
+    
+    def identify_mushroom(self, image):
+        """
+        Main identification workflow using MDP
+        
+        Args:
+            image: PIL Image
+        
+        Returns:
+            Final state with decision
+        """
+        # Step 1: CNN classification
+        state = create_initial_state(image, self.model, self.mushroom_kb)
+        
+        # Step 2: MDP decision loop
+        max_steps = 10  # Prevent infinite loops
+        for step in range(max_steps):
+            # Select action
+            action = self.policy.select_action(state)
+            
+            # Terminal action: make decision
+            if action == Action.MAKE_DECISION:
+                state = self._make_final_decision(state)
+                break
+            
+            # Ask question and get user answer
+            answer = self._ask_question(action)
+            
+            # Transition to next state
+            next_state, prob = self.transition_model.get_transition(state, action, answer)
+            state = next_state
+            
+            # Check if we should terminate early
+            if state.is_terminal:
+                break
+        
+        return state
+    
+    def _ask_question(self, action: Action) -> str:
+        """Ask user a question (integrate with Streamlit UI)"""
+        # This would integrate with Streamlit's UI components
+        # For now, return placeholder
+        return "Unknown"
+    
+    def _make_final_decision(self, state: MDPState) -> MDPState:
+        """Make final decision based on current state"""
+        state.is_terminal = True
+        
+        # Decision logic based on state
+        if state.predicted_class == "Agaricus":
+            if "volva" in state.answers and state.answers["volva"] == "Yes":
+                state.safety_status = SafetyStatus.DANGER
+            elif "spore_print" in state.answers and state.answers["spore_print"] == "White":
+                state.safety_status = SafetyStatus.DANGER
+            elif (state.confidence > 0.7 and 
+                  state.answers.get("spore_print") == "Dark Brown" and
+                  state.answers.get("volva") == "No"):
+                state.safety_status = SafetyStatus.SAFE
+            else:
+                state.safety_status = SafetyStatus.UNCERTAIN
+        else:
+            # For other classes, use confidence threshold
+            if state.confidence > 0.8:
+                state.safety_status = SafetyStatus.SAFE
+            else:
+                state.safety_status = SafetyStatus.UNCERTAIN
+        
+        state.decision_confidence = state.confidence
+        
+        return state
+```
+
+### 7. Implementation Steps
+
+#### Phase 1: Core MDP Components
+1. ✅ Implement `MDPState` class
+2. ✅ Implement `Action` enumeration
+3. ✅ Implement `TransitionModel` with domain knowledge
+4. ✅ Implement `RewardModel` with safety-focused rewards
+5. ✅ Implement `MDPPolicy` with value iteration
+
+#### Phase 2: Integration
+1. ✅ Modify `predict_mushroom()` to return state-compatible format
+2. ✅ Create `create_initial_state()` function
+3. ✅ Integrate MDP loop into image upload workflow
+4. ✅ Update Streamlit UI to support sequential questions
+
+#### Phase 3: Policy Learning
+1. Collect training data (state-action-reward tuples)
+2. Refine transition probabilities from data
+3. Optimize reward function weights
+4. Validate policy on test cases
+
+#### Phase 4: Analysis
+1. Analyze state space size and reachability
+2. Evaluate policy performance
+3. Compare MDP vs. rule-based approach
+4. Document complexity analysis
+
+### 8. Expected Benefits
+
+1. **Adaptive Question Selection**: System asks most informative questions first
+2. **Uncertainty Reduction**: Questions are selected to maximize information gain
+3. **Safety Optimization**: Policy prioritizes preventing false negatives for deadly mushrooms
+4. **Formal Framework**: Mathematically rigorous decision-making process
+5. **Extensibility**: Easy to add new questions or modify rewards
+
+### 9. Complexity Considerations
+
+- **State Space**: ~$10^4$ to $10^5$ effective states (after pruning)
+- **Action Space**: 7-8 actions (questions + decision)
+- **Value Iteration**: $O(|S|^2|A|)$ per iteration
+- **Policy Lookup**: $O(1)$ with hash table
+- **Online Decision**: $O(|A|)$ per step
+
+### 10. Testing Strategy
+
+1. **Unit Tests**: Test state transitions, rewards, policy selection
+2. **Integration Tests**: Test full workflow with mock user inputs
+3. **Safety Tests**: Verify no false negatives for deadly mushrooms
+4. **Performance Tests**: Measure decision time and question count
+
