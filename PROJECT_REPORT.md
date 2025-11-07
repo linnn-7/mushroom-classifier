@@ -172,7 +172,7 @@ $$s = (y_{\text{pred}}, c, \mathcal{F}_{\text{obs}}, \mathcal{A}, u)$$
 where:
 - $y_{\text{pred}} \in \{1, \ldots, 9\}$: CNN predicted class
 - $c \in [0, 1]$: CNN confidence score
-- $\mathcal{F}_{\text{obs}} \subseteq \{\text{volva}, \text{spore\_print}, \text{habitat}, \text{gill\_color}, \text{bruising}, \text{odor}\}$: Set of observed features
+- $\mathcal{F}_{\text{obs}} \subseteq \{\text{volva}, \text{spore print}, \text{habitat}, \text{gill color}, \text{bruising}, \text{odor}\}$: Set of observed features
 - $\mathcal{A}: \mathcal{F}_{\text{obs}} \rightarrow \text{Answers}$: Mapping from features to user answers
 - $u \in [0, 1]$: Uncertainty measure ($u = 1 - c$ initially)
 
@@ -195,7 +195,7 @@ However, in practice, we only explore reachable states from the initial CNN pred
 
 Actions $a \in \mathcal{A}$:
 
-$$\mathcal{A} = \{\text{ASK\_VOLVA}, \text{ASK\_SPORE\_PRINT}, \text{ASK\_HABITAT}, \text{ASK\_GILL\_COLOR}, \text{ASK\_BRUISING}, \text{ASK\_ODOR}, \text{MAKE\_DECISION}\}$$
+$$\mathcal{A} = \{\text{ASK VOLVA}, \text{ASK SPORE PRINT}, \text{ASK HABITAT}, \text{ASK GILL COLOR}, \text{ASK BRUISING}, \text{ASK ODOR}, \text{MAKE DECISION}\}$$
 
 **Action Space Size**: $|\mathcal{A}| = 7$
 
@@ -203,13 +203,13 @@ $$\mathcal{A} = \{\text{ASK\_VOLVA}, \text{ASK\_SPORE\_PRINT}, \text{ASK\_HABITA
 
 Transition probabilities $P(s_{t+1} | s_t, a_t)$ are modeled based on mycological domain knowledge:
 
-**Example Transition (Agaricus + ASK_VOLVA):**
+**Example Transition (Agaricus + ASK VOLVA):**
 
-$$P(s_{t+1} | s_t = (\text{Agaricus}, c, \mathcal{F}, \mathcal{A}, u), a_t = \text{ASK\_VOLVA}, \text{answer} = \text{No}) = 1.0$$
+$$P(s_{t+1} | s_t = (\text{Agaricus}, c, \mathcal{F}, \mathcal{A}, u), a_t = \text{ASK VOLVA}, \text{answer} = \text{No}) = 1.0$$
 
 This is deterministic given the answer, but the uncertainty update is probabilistic:
 
-$$u_{t+1} = \max(0, u_t - \alpha \cdot \text{information\_gain}(a_t, \text{answer}))$$
+$$u_{t+1} = \max(0, u_t - \alpha \cdot \text{information gain}(a_t, \text{answer}))$$
 
 where $\alpha$ is a learning rate and information gain depends on how much the answer reduces uncertainty.
 
@@ -231,21 +231,21 @@ where:
 
 - **Safety Reward**: 
   $$R_{\text{safety}}(s') = \begin{cases}
-  +100 & \text{if } s'.\text{safety\_status} = \text{DANGER} \text{ (prevented harm)} \\
-  +50 & \text{if } s'.\text{safety\_status} = \text{SAFE} \text{ (confirmed safe)} \\
-  +25 & \text{if } s'.\text{safety\_status} = \text{UNCERTAIN} \text{ (conservative)}
+  +100 & \text{if } s'.\text{safety status} = \text{DANGER} \text{ (prevented harm)} \\
+  +50 & \text{if } s'.\text{safety status} = \text{SAFE} \text{ (confirmed safe)} \\
+  +25 & \text{if } s'.\text{safety status} = \text{UNCERTAIN} \text{ (conservative)}
   \end{cases}$$
 
 - **Confidence Reward**:
   $$R_{\text{confidence}}(s') = \begin{cases}
-  +20 & \text{if } s'.\text{decision\_confidence} > 0.8 \\
-  +10 & \text{if } s'.\text{decision\_confidence} > 0.6 \\
+  +20 & \text{if } s'.\text{decision confidence} > 0.8 \\
+  +10 & \text{if } s'.\text{decision confidence} > 0.6 \\
   0 & \text{otherwise}
   \end{cases}$$
 
 - **Question Cost**:
   $$C_{\text{question}}(a) = \begin{cases}
-  -1 & \text{if } a \neq \text{MAKE\_DECISION} \\
+  -1 & \text{if } a \neq \text{MAKE DECISION} \\
   -2 & \text{if } a \text{ doesn't reduce uncertainty}
   \end{cases}$$
 
@@ -259,11 +259,11 @@ where:
 We use a **heuristic policy** that prioritizes safety-critical questions:
 
 $$\pi(a | s) = \begin{cases}
-\text{ASK\_VOLVA} & \text{if } y_{\text{pred}} = \text{Agaricus} \text{ and volva not observed} \\
-\text{ASK\_SPORE\_PRINT} & \text{if } y_{\text{pred}} = \text{Agaricus} \text{ and spore print not observed} \\
-\text{ASK\_HABITAT} & \text{if habitat not observed} \\
+\text{ASK VOLVA} & \text{if } y_{\text{pred}} = \text{Agaricus} \text{ and volva not observed} \\
+\text{ASK SPORE PRINT} & \text{if } y_{\text{pred}} = \text{Agaricus} \text{ and spore print not observed} \\
+\text{ASK HABITAT} & \text{if habitat not observed} \\
 \ldots & \text{(other priorities)} \\
-\text{MAKE\_DECISION} & \text{if } |\mathcal{F}_{\text{obs}}| \geq 4 \text{ and } u < 0.15
+\text{MAKE DECISION} & \text{if } |\mathcal{F}_{\text{obs}}| \geq 4 \text{ and } u < 0.15
 \end{cases}$$
 
 **Policy Complexity**: $O(|\mathcal{A}|)$ per state (linear in action space)
@@ -288,9 +288,9 @@ The final decision function `make_final_decision(s)` explicitly models conflicti
    - Bruising: +0.5 conflict
 
 3. **Confidence Adjustment**:
-   $$\text{decision\_confidence} = \begin{cases}
-   \max(0.2, c - 0.5) & \text{if critical\_conflicts} \geq 2 \\
-   \max(0.3, c - 0.4) & \text{if critical\_conflicts} \geq 1 \text{ or conflicts} \geq 2 \\
+   $$\text{decision confidence} = \begin{cases}
+   \max(0.2, c - 0.5) & \text{if critical conflicts} \geq 2 \\
+   \max(0.3, c - 0.4) & \text{if critical conflicts} \geq 1 \text{ or conflicts} \geq 2 \\
    \max(0.4, c - 0.2) & \text{if conflicts} \geq 1 \\
    \min(0.95, c + 0.1) & \text{if no conflicts and strong evidence} \\
    \max(0.3, c - 0.2) & \text{otherwise}
@@ -322,7 +322,7 @@ For educational explanations, we use GPT-4o-mini with Retrieval-Augmented Genera
    $$\text{retrieve}(q, \mathcal{KB}, k) = \text{argmax}_{KB(c_j)} \text{similarity}(q, KB(c_j))$$
 
 2. **Generation**: LLM generates response using retrieved context:
-   $$\text{response} = \text{LLM}(\text{system\_prompt}, \text{KB\_context}, q)$$
+   $$\text{response} = \text{LLM}(\text{system prompt}, \text{KB context}, q)$$
 
 **System Prompt** emphasizes:
 - Safety-first principles
