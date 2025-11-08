@@ -1,8 +1,8 @@
 import streamlit as st
 from PIL import Image
 import torch
-from torchvision import transforms
-from model import FineTuneResNet18 
+import torch.nn as nn
+from torchvision import transforms, models
 import json 
 import os 
 import base64
@@ -12,22 +12,32 @@ from mdp_system import (
     create_initial_state, make_final_decision
 )
 
+# --- Load CNN Model ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-checkpoint = torch.load("mushroom_model.pt", map_location=device)
-classes = checkpoint['classes']
+num_classes = 9  # your mushroom classes
 
-num_classes = len(classes)
-model = FineTuneResNet18(num_classes)
-model.load_state_dict(checkpoint['model_state_dict'])
+# Load ResNet18 without pretrained weights
+model = models.resnet18(weights=None)
+
+# Define fc exactly like training
+model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+
+# Load your saved weights
+model.load_state_dict(torch.load("mushroom_model.pth", map_location=device))
 model.to(device)
 model.eval()
 
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
+    transforms.RandomResizedCrop(224),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(15),
+    transforms.ColorJitter(0.1, 0.1, 0.1, 0.1),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406],
                          std=[0.229, 0.224, 0.225])
 ])
+
+classes = ["Agaricus", "Amanita", "Boletus", "Cortinarius", "Entoloma", "Hygrocybe", "Lactarius", "Russula", "Suillus"]
 
 # Load the Knowledge Base from JSON ---
 @st.cache_data  # Cache the KB so it doesn't reload on every interaction

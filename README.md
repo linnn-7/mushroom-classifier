@@ -66,26 +66,26 @@ The chatbot requires an OpenAI API key for LLM functionality.
 
 ### 5. Get the Trained Model
 
-You need the trained model file `mushroom_model.pt` in the `src/` directory.
+You need the trained model file `mushroom_model.pth` in the `src/` directory.
 
 **Option A: Use Pre-trained Model (if available)**
-- Download `mushroom_model.pt` and place it in the `src/` directory
-- The file should be at: `src/mushroom_model.pt`
+- Download `mushroom_model.pth` and place it in the `src/` directory
+- The file should be at: `src/mushroom_model.pth`
 
 **Option B: Train Your Own Model**
 1. **Open the Colab notebook:**
    `src/colab_run.ipynb`
 
 2. **The notebook includes steps to:**
-   - Fetch the mushroom dataset from Kaggle
-   - Preprocess the data
-   - Train the model using the training script
-   - Save the trained model as `mushroom_model.pt`
+   - Fetch the mushroom dataset from Kaggle  
+    - Preprocess the data  
+    - Train the model using the training script  
+    - Save the trained model as `mushroom_model.pth`
 
-3. **After running, download `mushroom_model.pt` and place it in `src/`:**
-   `src/mushroom_model.pt`
+3. **After running, download `mushroom_model.pth` and place it in `src/`:**
+   `src/mushroom_model.pth`
 
-### Training Results
+#### Training Results
 
 - **Total valid images:** 6,714  
 - **Training images:** 5,371  
@@ -93,17 +93,24 @@ You need the trained model file `mushroom_model.pt` in the `src/` directory.
 - **Classes:** `['Agaricus', 'Amanita', 'Boletus', 'Cortinarius', 'Entoloma', 'Hygrocybe', 'Lactarius', 'Russula', 'Suillus']`  
 - **Device used:** `cuda` (GPU)  
 
-**Training Performance (5 epochs):**
+**Final Validation Accuracy:** **86.45%**  
+**Model Saved As:** `mushroom_model.pth`
 
-| Epoch | Train Loss | Train Accuracy | Val Loss | Val Accuracy |
-|-------|------------|----------------|----------|--------------|
-| 1     | 1.2262     | 0.6384         | 0.7577   | 0.8034       |
-| 2     | 0.4898     | 0.9013         | 0.6474   | 0.8086       |
-| 3     | 0.2213     | 0.9745         | 0.5171   | 0.8474       |
-| 4     | 0.1073     | 0.9944         | 0.4747   | 0.8622       |
-| 5     | 0.0664     | 0.9972         | 0.5040   | 0.8392       |
+#### CNN Ablation Study Results (`nn_ablation_study.py`)
+
+| Experiment | Description | Validation Accuracy |
+|:-----------|:-------------|:-------------------:|
+| **Baseline** | Augmentation + Dropout + AdamW | 0.8042 |
+| **No Augmentation** | Removed image augmentation | 0.8153 |
+| **No Dropout** | Removed dropout layers | 0.8176 |
+| **SGD Optimizer** | Replaced AdamW with SGD | 0.4296 |
 
 
+> **Summary:**  
+> - Removing **Dropout** or **Augmentation** slightly improved accuracy (~1%)  
+> - Replacing **AdamW** with **SGD** caused a major drop in accuracy  
+
+**📄 Ablation summary file:** `ablation_summary.txt`
 
 ## Run the Streamlit App
 
