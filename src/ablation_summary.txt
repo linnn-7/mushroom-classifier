@@ -1,0 +1,6 @@
+Ablation Study Summary:
+======================
+Baseline (Aug + Dropout + AdamW): 0.8042
+No Augmentation: 0.8153
+No Dropout: 0.8176
+SGD Optimizer: 0.4296
