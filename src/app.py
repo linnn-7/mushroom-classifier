@@ -892,7 +892,19 @@ with st.form("image_upload_form", clear_on_submit=True):
 
 # --- 3. CHAT INPUT (Placed OUTSIDE the Form) ---
 if prompt := st.chat_input("Ask me about mushrooms or upload an image..."):
-    # ... (Your chat logic remains exactly the same) ...
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    
+    # Generate response using LLM or fallback
+    with st.spinner("Thinking..."):
+        response = get_chat_response(prompt, mushroom_kb)
+    
+    # Add assistant response to chat history
+    assistant_message = {"role": "assistant", "content": response}
+    if sporacle_image:
+        assistant_message["sporacle_image"] = sporacle_image
+    st.session_state.messages.append(assistant_message)
+    
     st.rerun()
 # Add MDP verification question to chat if needed
 if st.session_state.mdp_state and not st.session_state.mdp_state.is_terminal:
