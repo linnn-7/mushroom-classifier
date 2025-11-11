@@ -132,7 +132,7 @@ streamlit run app.py
 - Check that the file path is exactly: `src/.streamlit/secrets.toml` (not `.streamlit/secrets.toml` in the root)
 
 ### Issue: "mushroom_model.pt not found"
-- **Solution:** Download or train the model and place it at `src/mushroom_model.pt`
+- **Solution:** Download or train the model and place it at `src/mushroom_model.pth`
 
 ### Issue: Import errors
 - **Solution:** Make sure you've activated the virtual environment and installed all dependencies:
@@ -155,7 +155,7 @@ mushroom-classifier/
 │   ├── .streamlit/
 │   │   └── secrets.toml          ← Your API key goes here
 │   ├── app.py                    ← Main Streamlit application
-│   ├── mushroom_model.pt         ← Trained model (you need to get this)
+│   ├── mushroom_model.pth         ← Trained model (you need to get this)
 │   ├── mdp_system.py             ← MDP implementation
 │   ├── knowledge_base.json       ← Mushroom knowledge base
 │   ├── colab_run.ipynb           ← Training notebook
