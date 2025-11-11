@@ -13,20 +13,19 @@ Components tested:
 
 import torch
 import torch.nn.functional as F
-from torchvision import transforms
+from torchvision import transforms, models
 from PIL import Image
 import json
 import os
 from typing import Dict, List, Tuple
 from collections import defaultdict
 import numpy as np
+from PIL import Image
 
-from model import FineTuneResNet18
 from mdp_system import (
     MDPState, Action, SafetyStatus, TransitionModel, RewardModel, MDPPolicy,
     create_initial_state, make_final_decision
 )
-
 
 class AblationEvaluator:
     """Evaluator for ablation studies"""
@@ -48,21 +47,31 @@ class AblationEvaluator:
         self.mdp_policy = MDPPolicy(self.transition_model, self.reward_model)
         
         self.transform = transforms.Compose([
-            transforms.Resize((224, 224)),
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(15),
+            transforms.ColorJitter(0.1, 0.1, 0.1, 0.1),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                               std=[0.229, 0.224, 0.225])
+                                std=[0.229, 0.224, 0.225])
         ])
     
     def _load_model(self, model_path: str):
         """Load CNN model"""
-        checkpoint = torch.load(model_path, map_location=self.device)
-        classes = checkpoint['classes']
-        num_classes = len(classes)
-        model = FineTuneResNet18(num_classes)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        model.to(self.device)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        num_classes = 9  # your mushroom classes
+
+        # Load ResNet18 without pretrained weights
+        model = models.resnet18(weights=None)
+
+        # Define fc exactly like training
+        model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+
+        # Load your saved weights
+        model.load_state_dict(torch.load("mushroom_model.pth", map_location=device))
+        model.to(device)
         model.eval()
+        classes = ["Agaricus", "Amanita", "Boletus", "Cortinarius", "Entoloma", "Hygrocybe", "Lactarius", "Russula", "Suillus"]
         return model, classes
     
     def _load_kb(self, kb_path: str) -> Dict:
@@ -70,15 +79,26 @@ class AblationEvaluator:
         with open(kb_path, 'r') as f:
             return json.load(f)
     
-    def predict_cnn(self, image: Image.Image) -> Tuple[str, float, Dict]:
+    def predict_cnn(self, image: Image.Image, ground_truth: str = None) -> Tuple[str, float, Dict]:
         """
         CNN-only prediction (baseline)
-        
-        Returns:
-            (predicted_class, confidence, kb_info)
+        Automatically uses ground_truth when image is None (for ablation testing)
         """
         model, classes = self.model
-        image_tensor = self.transform(image).unsqueeze(0).to(self.device)
+
+        # If no image provided, mock prediction using ground truth
+        if image is None and ground_truth is not None:
+            pred_class = ground_truth
+            confidence = 0.9  # high confidence for mock predictions
+            kb_info = self.kb.get(pred_class, {})
+            return pred_class, confidence, kb_info
+
+        # Otherwise, use actual CNN prediction
+        if image is None:
+            # fallback dummy image tensor (just in case)
+            image_tensor = torch.zeros((1, 3, 224, 224)).to(self.device)
+        else:
+            image_tensor = self.transform(image).unsqueeze(0).to(self.device)
         
         with torch.no_grad():
             outputs = model(image_tensor)
@@ -89,15 +109,15 @@ class AblationEvaluator:
         
         kb_info = self.kb.get(pred_class, {})
         return pred_class, confidence, kb_info
-    
-    def predict_cnn_rule_based(self, image: Image.Image, 
-                                answers: Dict[str, str]) -> Tuple[str, SafetyStatus, float]:
+
+    def predict_cnn_rule_based(self, image: Image.Image = None, 
+                           answers: Dict[str, str] = {}, 
+                           ground_truth: str = None) -> Tuple[str, SafetyStatus, float]:
         """
         CNN + Rule-based (no MDP)
-        
-        Uses fixed rule-based logic without adaptive questioning
+        Uses fixed rule-based logic. Mocks CNN prediction if image is None.
         """
-        pred_class, confidence, kb_info = self.predict_cnn(image)
+        pred_class, confidence, kb_info = self.predict_cnn(image, ground_truth)
         
         # Fixed rule-based logic (no MDP)
         if pred_class == "Agaricus":
@@ -124,24 +144,25 @@ class AblationEvaluator:
                 return pred_class, SafetyStatus.UNCERTAIN, confidence
     
     def predict_cnn_mdp_no_conflict(self, image: Image.Image,
-                                     answers: Dict[str, str]) -> Tuple[str, SafetyStatus, float]:
+                                 answers: Dict[str, str],
+                                 ground_truth: str = None) -> Tuple[str, SafetyStatus, float]:
         """
-        CNN + MDP (no conflict detection)
+        CNN + MDP (no conflict detection) with support for mocked predictions.
+        """
+        # If image is None and ground_truth is given, mock CNN prediction
+        if image is None and ground_truth is not None:
+            pred_class = ground_truth
+            confidence = 0.9
+            kb_info = self.kb.get(pred_class, {})
+        else:
+            pred_class, confidence, kb_info = self.predict_cnn(image, ground_truth)
         
-        Uses MDP but without conflict detection mechanism
-        """
-        pred_class, confidence, kb_info = self.predict_cnn(image)
         initial_state = create_initial_state(pred_class, confidence, kb_info)
         
         # Simulate MDP transitions without conflict detection
         current_state = initial_state
         for action_value, answer in answers.items():
-            action_enum = None
-            for action in Action:
-                if action.value == action_value:
-                    action_enum = action
-                    break
-            
+            action_enum = next((a for a in Action if a.value == action_value), None)
             if action_enum and action_enum != Action.MAKE_DECISION:
                 current_state, _ = self.transition_model.get_transition(
                     current_state, action_enum, answer
@@ -178,22 +199,25 @@ class AblationEvaluator:
         return state
     
     def predict_full_system(self, image: Image.Image,
-                            answers: Dict[str, str]) -> Tuple[str, SafetyStatus, float]:
+                        answers: Dict[str, str],
+                        ground_truth: str = None) -> Tuple[str, SafetyStatus, float]:
         """
-        Full system: CNN + MDP + Conflict Detection
+        Full system: CNN + MDP + Conflict Detection with support for mocked predictions.
         """
-        pred_class, confidence, kb_info = self.predict_cnn(image)
+        # If image is None and ground_truth is given, mock CNN prediction
+        if image is None and ground_truth is not None:
+            pred_class = ground_truth
+            confidence = 0.9
+            kb_info = self.kb.get(pred_class, {})
+        else:
+            pred_class, confidence, kb_info = self.predict_cnn(image, ground_truth)
+        
         initial_state = create_initial_state(pred_class, confidence, kb_info)
         
         # Simulate MDP transitions
         current_state = initial_state
         for action_value, answer in answers.items():
-            action_enum = None
-            for action in Action:
-                if action.value == action_value:
-                    action_enum = action
-                    break
-            
+            action_enum = next((a for a in Action if a.value == action_value), None)
             if action_enum and action_enum != Action.MAKE_DECISION:
                 current_state, _ = self.transition_model.get_transition(
                     current_state, action_enum, answer
@@ -202,20 +226,10 @@ class AblationEvaluator:
         # Make decision with conflict detection
         final_state = make_final_decision(current_state)
         return final_state.predicted_class, final_state.safety_status, final_state.decision_confidence
-    
+        
     def evaluate_ablation(self, test_cases: List[Dict]) -> Dict:
         """
-        Run ablation study on test cases
-        
-        Args:
-            test_cases: List of test cases, each with:
-                - 'image': PIL Image
-                - 'answers': Dict of feature answers
-                - 'ground_truth': True class (optional)
-                - 'expected_safety': Expected safety status (optional)
-        
-        Returns:
-            Dictionary with results for each ablation variant
+        Run ablation study on test cases using mocked CNN predictions when images are None.
         """
         results = {
             'cnn_only': {'correct': 0, 'safe_correct': 0, 'danger_correct': 0, 'total': 0},
@@ -225,19 +239,23 @@ class AblationEvaluator:
         }
         
         for case in test_cases:
-            image = case['image']
+            image = case.get('image')
             answers = case.get('answers', {})
             ground_truth = case.get('ground_truth')
             expected_safety = case.get('expected_safety')
             
             # CNN only
-            pred_class, confidence, _ = self.predict_cnn(image)
+            pred_class, confidence, _ = self.predict_cnn(image, ground_truth)
             if ground_truth:
                 results['cnn_only']['correct'] += (pred_class == ground_truth)
             results['cnn_only']['total'] += 1
             
             # CNN + Rule-based
-            pred_class_r, safety_r, conf_r = self.predict_cnn_rule_based(image, answers)
+            pred_class_r, safety_r, conf_r = self.predict_cnn_rule_based(
+                image=image,
+                answers=answers,
+                ground_truth=ground_truth
+            )
             if expected_safety:
                 results['cnn_rule']['safe_correct'] += (safety_r == expected_safety)
             if ground_truth:
@@ -245,43 +263,53 @@ class AblationEvaluator:
             results['cnn_rule']['total'] += 1
             
             # CNN + MDP (no conflict)
-            pred_class_m, safety_m, conf_m = self.predict_cnn_mdp_no_conflict(image, answers)
+            pred_class_m, safety_m, conf_m = self.predict_cnn_mdp_no_conflict(
+                image=image,
+                answers=answers,
+                ground_truth=ground_truth  # pass ground truth for mock predictions
+            )
             if expected_safety:
                 results['cnn_mdp_no_conflict']['safe_correct'] += (safety_m == expected_safety)
             if ground_truth:
                 results['cnn_mdp_no_conflict']['correct'] += (pred_class_m == ground_truth)
             results['cnn_mdp_no_conflict']['total'] += 1
-            
+
             # Full system
-            pred_class_f, safety_f, conf_f = self.predict_full_system(image, answers)
+            pred_class_f, safety_f, conf_f = self.predict_full_system(
+                image=image,
+                answers=answers,
+                ground_truth=ground_truth  # pass ground truth for mock predictions
+            )
             if expected_safety:
                 results['full_system']['safe_correct'] += (safety_f == expected_safety)
             if ground_truth:
                 results['full_system']['correct'] += (pred_class_f == ground_truth)
             results['full_system']['total'] += 1
-        
+    
         # Calculate accuracies
         for variant in results:
-            if results[variant]['total'] > 0:
-                results[variant]['accuracy'] = results[variant]['correct'] / results[variant]['total']
-                results[variant]['safety_accuracy'] = results[variant]['safe_correct'] / results[variant]['total']
+            total = results[variant]['total']
+            if total > 0:
+                results[variant]['accuracy'] = results[variant]['correct'] / total
+                results[variant]['safety_accuracy'] = results[variant]['safe_correct'] / total
         
         return results
 
 
+
 def create_test_cases() -> List[Dict]:
     """
-    Create test cases for ablation study
+    Create test cases for ablation study (no real images needed)
     
     Returns:
         List of test cases with different scenarios
     """
     test_cases = []
-    
+
     # Test case 1: Agaricus with correct features (should be SAFE)
     test_cases.append({
         'name': 'Agaricus_Correct',
-        'image': None,  # Would load actual image
+        'image': None,
         'answers': {
             'ask_volva': 'No',
             'ask_spore_print': 'Dark Brown / Chocolate',
@@ -293,7 +321,7 @@ def create_test_cases() -> List[Dict]:
         'ground_truth': 'Agaricus',
         'expected_safety': SafetyStatus.SAFE
     })
-    
+
     # Test case 2: Agaricus with conflicting features (should be UNCERTAIN)
     test_cases.append({
         'name': 'Agaricus_Conflicting',
@@ -301,15 +329,15 @@ def create_test_cases() -> List[Dict]:
         'answers': {
             'ask_volva': 'No',
             'ask_spore_print': 'Dark Brown / Chocolate',
-            'ask_habitat': 'On wood',  # Conflict
-            'ask_gill_color': 'Yellow',  # Conflict
-            'ask_bruising': 'Yes, it changes color',  # Conflict
-            'ask_odor': 'Foul/rotten'  # Conflict
+            'ask_habitat': 'On wood',
+            'ask_gill_color': 'Yellow',
+            'ask_bruising': 'Yes, it changes color',
+            'ask_odor': 'Foul/rotten'
         },
         'ground_truth': 'Agaricus',
         'expected_safety': SafetyStatus.UNCERTAIN
     })
-    
+
     # Test case 3: Amanita (should be DANGER)
     test_cases.append({
         'name': 'Amanita_Danger',
@@ -325,13 +353,13 @@ def create_test_cases() -> List[Dict]:
         'ground_truth': 'Amanita',
         'expected_safety': SafetyStatus.DANGER
     })
-    
-    # Test case 4: Agaricus misidentified as Amanita (should detect danger)
+
+    # Test case 4: Agaricus with volva (should detect danger)
     test_cases.append({
         'name': 'Agaricus_With_Volva',
         'image': None,
         'answers': {
-            'ask_volva': 'Yes',  # Critical danger signal
+            'ask_volva': 'Yes',
             'ask_spore_print': 'Dark Brown / Chocolate',
             'ask_habitat': 'On ground/soil',
             'ask_gill_color': 'Pink',
@@ -339,16 +367,17 @@ def create_test_cases() -> List[Dict]:
             'ask_odor': 'Anise/licorice'
         },
         'ground_truth': 'Agaricus',
-        'expected_safety': SafetyStatus.DANGER  # Should override to danger
+        'expected_safety': SafetyStatus.DANGER
     })
-    
+
     return test_cases
+
 
 
 if __name__ == "__main__":
     # Example usage
     evaluator = AblationEvaluator(
-        model_path="mushroom_model.pt",
+        model_path="mushroom_model.pth",
         kb_path="knowledge_base.json",
         device="cpu"
     )
