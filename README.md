@@ -159,8 +159,10 @@ mushroom-classifier/
 │   ├── mdp_system.py             ← MDP implementation
 │   ├── knowledge_base.json       ← Mushroom knowledge base
 │   ├── colab_run.ipynb           ← Training notebook
-│   └── ...
-├── PROJECT_REPORT.md             ← Project report and documentation
+│   └── resnet_trainer.py         ← Train CNN model
+|   └── ablation_studies.py       ← System level ablation study
+|   └── nn_ablation_study.py      ← CNN ablation study
+|   ...
 ├── requirements.txt
 └── README.md
 ```
@@ -172,8 +174,3 @@ mushroom-classifier/
 3. The `secrets.toml` file is in `.gitignore` and will NOT be pushed to GitHub (for security)
 4. The app works without the API key, but chatbot features will be limited
 
-## References
-
-- Kaggle mushroom dataset: https://www.kaggle.com/datasets/maysee/mushrooms-classification-common-genuss-images/data
-
-- resnet18: https://docs.pytorch.org/vision/main/models/generated/torchvision.models.resnet18.html
