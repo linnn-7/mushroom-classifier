@@ -12,17 +12,10 @@ from mdp_system import (
     create_initial_state, make_final_decision
 )
 
-# --- Load CNN Model ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-num_classes = 9  # your mushroom classes
-
-# Load ResNet18 without pretrained weights
+num_classes = 9 
 model = models.resnet18(weights=None)
-
-# Define fc exactly like training
 model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-
-# Load your saved weights
 model.load_state_dict(torch.load("mushroom_model.pth", map_location=device))
 model.to(device)
 model.eval()
@@ -39,7 +32,6 @@ transform = transforms.Compose([
 
 classes = ["Agaricus", "Amanita", "Boletus", "Cortinarius", "Entoloma", "Hygrocybe", "Lactarius", "Russula", "Suillus"]
 
-# Load the Knowledge Base from JSON ---
 @st.cache_data  # Cache the KB so it doesn't reload on every interaction
 def load_knowledge_base():
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -265,7 +257,6 @@ I can identify 9 common mushroom genera: Agaricus, Amanita, Boletus, Cortinarius
 
 Or upload an image using the upload button next to the chat input!"""
 
-# --- LLM-Powered Chat Response Function ---
 @st.cache_resource
 def get_openai_client():
     """Initialize OpenAI client with API key from secrets"""
@@ -359,7 +350,6 @@ Provide a helpful, warm response using the knowledge base information above. Alw
             st.error(f"⚠️ LLM API error: {error_msg}")
         return get_chat_response_fallback(user_input, mushroom_kb)
 
-# --- Format Prediction Response (Sporacle Style) ---
 def format_prediction_response(pred_class, info, confidence_score):
     """Format model prediction in Sporacle style with structured, colorful output"""
     # Determine confidence band
@@ -876,7 +866,6 @@ def process_image_analysis():
             # Note: No st.rerun() is needed here. The callback runs, 
             # then the form submission itself triggers the rerun.
 
-# --- 2. THE FORM (Now with the on_click callback) ---
 with st.form("image_upload_form", clear_on_submit=True):
     st.markdown("### 📤 Image Identification")
     st.file_uploader(
@@ -889,8 +878,6 @@ with st.form("image_upload_form", clear_on_submit=True):
     # The button now calls your function when clicked
     st.form_submit_button("Start Analysis", on_click=process_image_analysis)
 
-
-# --- 3. CHAT INPUT (Placed OUTSIDE the Form) ---
 if prompt := st.chat_input("Ask me about mushrooms or upload an image..."):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
@@ -906,7 +893,7 @@ if prompt := st.chat_input("Ask me about mushrooms or upload an image..."):
     st.session_state.messages.append(assistant_message)
     
     st.rerun()
-# Add MDP verification question to chat if needed
+
 if st.session_state.mdp_state and not st.session_state.mdp_state.is_terminal:
     # Check if we've already shown the form
     if "mdp_question_shown" not in st.session_state:

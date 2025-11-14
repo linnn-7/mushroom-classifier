@@ -151,7 +151,6 @@ def run_ablation_study():
         print(f"Validation Accuracy for {exp['name']}: {val_acc:.4f}")
         results.append((exp['name'], val_acc))
     
-    # Save summary
     with open("ablation_summary.txt", "w") as f:
         f.write("Ablation Study Summary:\n")
         f.write("======================\n")

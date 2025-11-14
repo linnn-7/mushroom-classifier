@@ -4,9 +4,6 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms, models
 from PIL import Image
 
-# -------------------------------
-# Safe ImageFolder that skips corrupted images
-# -------------------------------
 class SafeImageFolder(datasets.ImageFolder):
     def __init__(self, root, transform=None):
         super().__init__(root=root, transform=transform)
@@ -20,9 +17,6 @@ class SafeImageFolder(datasets.ImageFolder):
         self.samples = valid_samples
         self.targets = [s[1] for s in valid_samples]
 
-# -------------------------------
-# Load Mushroom dataset
-# -------------------------------
 def load_mushroom_data(data_dir="/content/data/Mushrooms", batch_size=32):
     transform = transforms.Compose([
         transforms.RandomResizedCrop(224),
@@ -51,9 +45,6 @@ def load_mushroom_data(data_dir="/content/data/Mushrooms", batch_size=32):
 
     return train_loader, val_loader, dataset.classes
 
-# -------------------------------
-# ResNetTrainer class with improvements
-# -------------------------------
 class ResNetTrainer:
     def __init__(self, num_classes=10, lr=1e-4):
         # Device selection
@@ -81,7 +72,6 @@ class ResNetTrainer:
 
     def train(self, train_loader, val_loader, num_epochs=20):
         for epoch in range(num_epochs):
-            # ------------------ Training ------------------
             self.model.train()
             running_loss = 0.0
             running_corrects = 0
@@ -105,7 +95,6 @@ class ResNetTrainer:
             train_loss = running_loss / len(train_loader.dataset)
             train_acc = running_corrects.float() / len(train_loader.dataset)
 
-            # ------------------ Validation ------------------
             self.model.eval()
             running_loss = 0.0
             running_corrects = 0
@@ -133,9 +122,6 @@ class ResNetTrainer:
     def get_model(self):
         return self.model
 
-# -------------------------------
-# Main: Load data, train, save
-# -------------------------------
 if __name__ == "__main__":
     train_loader, val_loader, classes = load_mushroom_data(batch_size=32)
     num_classes = len(classes)
